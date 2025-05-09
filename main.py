@@ -23,10 +23,14 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 
 # Check whether user has the authorised role and is in the correct channel
-def restrict():
+def restrict(allowed_extra_channels=None):
+    if allowed_extra_channels is None:
+        allowed_extra_channels = []
+
     def predicate(ctx):
         allowed_roles = ['Admin', 'Current_EXCO']
-        allowed_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions']
+        default_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions']
+        allowed_channels = default_channels + allowed_extra_channels
 
         # Check role
         if not any(role.name in allowed_roles for role in ctx.author.roles):
@@ -35,8 +39,9 @@ def restrict():
         # Check channel
         if ctx.channel.name not in allowed_channels:
             raise commands.CheckFailure("❌ Forbidden channel.")
-        
+
         return True
+
     return commands.check(predicate)
 
 
@@ -57,7 +62,7 @@ async def on_command_error(ctx, error):
 
 
 @bot.command()
-@restrict()
+@restrict(allowed_extra_channels=['💬┃general'])
 async def piano_groups(ctx):
     """Shows a pie chart of piano-playing groups of current members in NYP PE."""
     
@@ -111,7 +116,7 @@ async def piano_groups(ctx):
 
 
 @bot.command()
-@restrict()
+@restrict(allowed_extra_channels=['💬┃general'])
 async def message_stats(ctx):
     """Shows 2 horizontal bar charts of total message and word counts respectively, in descending order, for both current members and alumni of NYP PE."""
     
