@@ -21,6 +21,12 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+ROLE_CHANNEL_MAP = {
+    'Admin': ['🛠┃admin-discussions', '💬┃general'],
+    'Current_EXCO': ['🧠┃exco-discussions', '💬┃general'],
+    'Member': ['💬┃general'],
+    'Alumni': ['💬┃general']
+}
 
 # Check whether user has the authorised role and is in the correct channel
 def restrict(allowed_extra_channels=None):
@@ -28,22 +34,23 @@ def restrict(allowed_extra_channels=None):
         allowed_extra_channels = []
 
     def predicate(ctx):
-        allowed_roles = ['Admin', 'Current_EXCO']
-        default_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions']
-        allowed_channels = default_channels + allowed_extra_channels
+        user_roles = [role.name for role in ctx.author.roles]
+        allowed_channels = set(allowed_extra_channels)  # Use a set to avoid duplicates
 
-        # Check role
-        if not any(role.name in allowed_roles for role in ctx.author.roles):
+        # Collect all channels allowed based on user's roles
+        for role in user_roles:
+            if role in ROLE_CHANNEL_MAP:
+                allowed_channels.update(ROLE_CHANNEL_MAP[role])
+
+        if not allowed_channels:
             raise commands.CheckFailure("❌ Forbidden role.")
-        
-        # Check channel
+
         if ctx.channel.name not in allowed_channels:
             raise commands.CheckFailure("❌ Forbidden channel.")
 
         return True
 
     return commands.check(predicate)
-
 
 @bot.event
 async def on_ready():
