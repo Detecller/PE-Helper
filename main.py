@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord.ui import Select, View
 import pandas as pd
 from dotenv import load_dotenv
 import os
@@ -21,36 +22,42 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-ROLE_CHANNEL_MAP = {
-    'Admin': ['🛠┃admin-discussions', '💬┃general'],
-    'Current_EXCO': ['🧠┃exco-discussions', '💬┃general'],
-    'Member': ['💬┃general'],
-    'Alumni': ['💬┃general']
-}
 
 # Check whether user has the authorised role and is in the correct channel
-def restrict(allowed_extra_channels=None):
-    if allowed_extra_channels is None:
-        allowed_extra_channels = []
-
+def restrict(forbidden_roles=None, forbidden_channels=None):
+    if forbidden_roles is None:
+        forbidden_roles = []
+    if forbidden_channels is None:
+        forbidden_channels = []
+        
     def predicate(ctx):
+        default_allowed_roles = ['Admin', 'Current EXCO', 'Member', 'Alumni']
+        default_allowed_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general']
+
+        # Remove forbidden roles and channels from allowed ones
+        allowed_roles = [role for role in default_allowed_roles if role not in forbidden_roles]
+        allowed_channels = [channel for channel in default_allowed_channels if channel not in forbidden_channels]
+
         user_roles = [role.name for role in ctx.author.roles]
-        allowed_channels = set(allowed_extra_channels)  # Use a set to avoid duplicates
 
-        # Collect all channels allowed based on user's roles
-        for role in user_roles:
-            if role in ROLE_CHANNEL_MAP:
-                allowed_channels.update(ROLE_CHANNEL_MAP[role])
+        reasons = []
 
-        if not allowed_channels:
-            raise commands.CheckFailure("❌ Forbidden role.")
-
+        # Check if the user has the required role
+        if not any(role in allowed_roles for role in user_roles):
+            reasons.append("❌ You don't have the permitted role to use this command.")
+        
+        # Check if the channel is not in the whitelist
         if ctx.channel.name not in allowed_channels:
-            raise commands.CheckFailure("❌ Forbidden channel.")
+            reasons.append("❌ This command cannot be used in this channel.")
+
+        # If there are any failed checks, raise an exception
+        if reasons:
+            raise commands.CheckFailure("\n".join(reasons))
 
         return True
 
     return commands.check(predicate)
+
 
 @bot.event
 async def on_ready():
@@ -69,7 +76,7 @@ async def on_command_error(ctx, error):
 
 
 @bot.command()
-@restrict(allowed_extra_channels=['💬┃general'])
+@restrict()
 async def piano_groups(ctx):
     """Shows a pie chart of piano-playing groups of current members in NYP PE."""
     
@@ -123,7 +130,66 @@ async def piano_groups(ctx):
 
 
 @bot.command()
-@restrict(allowed_extra_channels=['💬┃general'])
+@restrict()
+async def list_current_exco(ctx):
+    """Lists the names of those in the current EXCO."""
+    
+    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
+
+    current_exco_list = []
+    for member in guild.members:
+            if any(role.name == 'Current EXCO' for role in member.roles):
+                current_exco_list.append(member.display_name)
+
+    current_exco_list = sorted(current_exco_list, key=lambda name: name.lower())
+    current_exco_list_text = "**Here are the names of those in the current EXCO:**\n" + "\n".join(f"- {name}" for name in current_exco_list)
+    await ctx.send(current_exco_list_text)
+
+
+@bot.command()
+@restrict()
+async def list_piano_group_members(ctx):
+    """Prompts for a piano-playing group and lists members with that role (excluding alumni)."""
+
+    class PianoGroupDropdown(Select):
+        def __init__(self):
+            options = [
+                discord.SelectOption(label="Foundational"),
+                discord.SelectOption(label="Novice"),
+                discord.SelectOption(label="Intermediate"),
+                discord.SelectOption(label="Advanced"),
+            ]
+            super().__init__(placeholder="Choose a piano group...", min_values=1, max_values=1, options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            selected_group = self.values[0]
+            guild = interaction.guild
+
+            members_in_group = []
+            for member in guild.members:
+                role_names = [role.name for role in member.roles]
+                if selected_group in role_names and "Member" in role_names:
+                    members_in_group.append(member.display_name)
+
+            if members_in_group:
+                members_in_group.sort()
+                member_list = "\n".join(f"- {name}" for name in members_in_group)
+                response = f"**Members in the {selected_group} group (excluding alumni):**\n{member_list}"
+            else:
+                response = f"No current members found in the {selected_group} group."
+
+            await interaction.response.send_message(response, ephemeral=True)
+
+    class PianoGroupView(View):
+        def __init__(self):
+            super().__init__()
+            self.add_item(PianoGroupDropdown())
+
+    await ctx.send("Please select a piano-playing group:", view=PianoGroupView())
+
+
+@bot.command()
+@restrict()
 async def message_stats(ctx):
     """Shows 2 horizontal bar charts of total message and word counts respectively, in descending order, for both current members and alumni of NYP PE."""
     
@@ -227,7 +293,7 @@ async def message_stats(ctx):
 
 
 @bot.command()
-@restrict()
+@restrict(forbidden_roles=['Member', 'Alumni'], forbidden_channels=['💬┃general'])
 async def members_details(ctx):
     """Lists all available details relating to members and alumni in Excel format."""
     
