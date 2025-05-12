@@ -98,7 +98,7 @@ async def count_messages():
             continue
         try:
             async for msg in ch.history(limit=None):
-                if msg.author.bot or msg.author is None:
+                if not isinstance(msg.author, discord.Member) or msg.author.bot:
                     continue
                 name = msg.author.display_name
                 message_counts.setdefault(name, 0)
