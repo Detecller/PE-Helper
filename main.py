@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import Select, View
 import pandas as pd
 from dotenv import load_dotenv
@@ -9,6 +9,8 @@ from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
+import datetime
+import pytz
 
 
 load_dotenv()
@@ -22,6 +24,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Define Singapore Time zone
+SGT = pytz.timezone('Asia/Singapore')
 
 # Check whether user has the authorised role and is in the correct channel
 def restrict(forbidden_roles=None, forbidden_channels=None):
@@ -32,7 +36,7 @@ def restrict(forbidden_roles=None, forbidden_channels=None):
         
     def predicate(ctx):
         default_allowed_roles = ['Admin', 'Current EXCO', 'Member', 'Alumni']
-        default_allowed_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general']
+        default_allowed_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general', '🤖┃bot-dev']
 
         # Remove forbidden roles and channels from allowed ones
         allowed_roles = [role for role in default_allowed_roles if role not in forbidden_roles]
@@ -65,6 +69,8 @@ async def on_ready():
     print(f"Connected to {len(bot.guilds)} server(s):")
     for guild in bot.guilds:
         print(f" - {guild.name}")
+    if not count_messages.is_running():
+        count_messages.start()
 
 
 @bot.event
@@ -73,6 +79,63 @@ async def on_command_error(ctx, error):
         await ctx.send(str(error))
     else:
         raise error
+
+
+@tasks.loop(hours=1)
+async def count_messages():
+
+    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
+
+    message_counts = {}
+    word_counts = {}
+    
+    target_roles = ['Member', 'Alumni']
+    role_objects = [discord.utils.get(guild.roles, name=role_name) for role_name in target_roles]
+
+    scanned_channels = []
+    for channel in guild.text_channels:
+        if not any(channel.permissions_for(role).view_channel for role in role_objects if role):
+            continue
+        try:
+            async for message in channel.history(limit=None):
+                if message.author is None or message.author.bot:
+                    continue
+
+                name = message.author.display_name
+                if name not in message_counts:
+                    message_counts[name] = 0
+                    word_counts[name] = 0
+
+                message_counts[name] += 1
+                word_counts[name] += len(message.content.split())
+
+        except discord.Forbidden:
+            print(f"Skipping inaccessible channel: {channel.name}")
+        except discord.HTTPException as e:
+            print(f"Error in {channel.name}: {e}")
+
+        scanned_channels.append(channel.name)
+
+    df_messages = pd.DataFrame([
+        {
+            "Name": name,
+            "Message Count": message_counts[name],
+            "Word Count": word_counts[name]
+        }
+        for name in message_counts
+    ])
+    df_top_messages = df_messages.sort_values(by="Message Count", ascending=False, ignore_index=True).head(10)
+    df_top_words = df_messages.sort_values(by="Word Count", ascending=False, ignore_index=True).head(10)
+
+    df_top_messages.to_csv("top_messages.csv")
+    df_top_words.to_csv("top_words.csv")
+    
+    with open("channels.txt", "w", encoding="utf-8") as f:
+        for channel in scanned_channels:
+            f.write(channel + "\n")
+    
+    global last_update
+    last_update = datetime.datetime.now(SGT)
 
 
 @bot.command()
@@ -192,52 +255,12 @@ async def list_piano_group_members(ctx):
 @restrict()
 async def message_stats(ctx):
     """Shows 2 horizontal bar charts of total message and word counts respectively, in descending order, for both current members and alumni of NYP PE."""
-    
-    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
 
-    message_counts = {}
-    word_counts = {}
-    
-    target_roles = ['Member', 'Alumni']
-    role_objects = [discord.utils.get(guild.roles, name=role_name) for role_name in target_roles]
+    with open("channels.txt", "r", encoding="utf-8") as f:
+        scanned_channels = [line.strip() for line in f if line.strip()]
 
-    scanned_channels = []
-    for channel in guild.text_channels:
-        if not any(channel.permissions_for(role).view_channel for role in role_objects if role):
-            continue
-        try:
-            async for message in channel.history(limit=None):
-                if message.author.bot:
-                    continue
-
-                name = message.author.display_name
-                if name not in message_counts:
-                    message_counts[name] = 0
-                    word_counts[name] = 0
-
-                message_counts[name] += 1
-                word_counts[name] += len(message.content.split())
-
-        except discord.Forbidden:
-            print(f"Skipping inaccessible channel: {channel.name}")
-        except discord.HTTPException as e:
-            print(f"Error in {channel.name}: {e}")
-
-        scanned_channels.append(channel.name)
-    
-    channel_list_text = "**Scanned Channels:**\n" + "\n".join(f"- {name}" for name in scanned_channels)
-    await ctx.send(channel_list_text)
-
-    df_messages = pd.DataFrame([
-        {
-            "Name": name,
-            "Message Count": message_counts[name],
-            "Word Count": word_counts[name]
-        }
-        for name in message_counts
-    ])
-    df_top_messages = df_messages.sort_values(by="Message Count", ascending=False, ignore_index=True).head(10)
-    df_top_words = df_messages.sort_values(by="Word Count", ascending=False, ignore_index=True).head(10)
+    df_top_messages = pd.read_csv('top_messages.csv')
+    df_top_words = pd.read_csv('top_words.csv')
 
     # Create a horizontal bar chart of message counts
     fig_messages = go.Figure(data=go.Bar(
@@ -288,8 +311,12 @@ async def message_stats(ctx):
     fig_words.write_image(img_bytes_2, format='png')
     img_bytes_2.seek(0)
 
+    channel_list_text = "**Scanned Channels:**\n" + "\n".join(f"- {name}" for name in scanned_channels)
+    await ctx.send(channel_list_text)
+
     await ctx.send("Message Count Chart:", file=discord.File(img_bytes_1, 'message_count.png'))
     await ctx.send("Word Count Chart:", file=discord.File(img_bytes_2, 'word_count.png'))
+    await ctx.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
 
 
 @bot.command()
