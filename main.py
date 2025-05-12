@@ -1,5 +1,6 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import tasks
+from discord import app_commands
 from discord.ui import Select, View
 import pandas as pd
 from dotenv import load_dotenv
@@ -12,9 +13,8 @@ from openpyxl.utils import get_column_letter
 import datetime
 import pytz
 
-
 load_dotenv()
-token = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.members = True
@@ -22,143 +22,123 @@ intents.guilds = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = discord.Client(intents=intents)
+tree = app_commands.CommandTree(bot)
 
-# Define Singapore Time zone
 SGT = pytz.timezone('Asia/Singapore')
 
-# Check whether user has the authorised role and is in the correct channel
-def restrict(forbidden_roles=None, forbidden_channels=None):
-    if forbidden_roles is None:
-        forbidden_roles = []
-    if forbidden_channels is None:
-        forbidden_channels = []
-        
-    def predicate(ctx):
-        default_allowed_roles = ['Admin', 'Current EXCO', 'Member', 'Alumni']
-        default_allowed_channels = ['🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general', '🤖┃bot-dev']
+# Check Permissions
+def has_allowed_role_and_channel(forbidden_roles: list[str] = None, forbidden_channels: list[str] = None):
+    # Default allowed roles and channels
+    default_allowed_roles = {'Admin', 'Current EXCO', 'Member', 'Alumni'}
+    default_allowed_channels = {'🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general', '🤖┃bot-dev'}
 
-        # Remove forbidden roles and channels from allowed ones
-        allowed_roles = [role for role in default_allowed_roles if role not in forbidden_roles]
-        allowed_channels = [channel for channel in default_allowed_channels if channel not in forbidden_channels]
+    # Ensure the parameters are not None and set defaults if empty
+    forbidden_roles = forbidden_roles or []
+    forbidden_channels = forbidden_channels or []
 
-        user_roles = [role.name for role in ctx.author.roles]
+    # Validate user roles and channel
+    async def predicate(interaction: discord.Interaction) -> bool:
 
-        reasons = []
+        # Calculate the allowed roles and channels by removing forbidden ones
+        allowed_roles = default_allowed_roles - set(forbidden_roles)
+        allowed_channels = default_allowed_channels - set(forbidden_channels)
 
-        # Check if the user has the required role
-        if not any(role in allowed_roles for role in user_roles):
-            reasons.append("❌ You don't have the permitted role to use this command.")
-        
-        # Check if the channel is not in the whitelist
-        if ctx.channel.name not in allowed_channels:
-            reasons.append("❌ This command cannot be used in this channel.")
+        user_roles = {r.name for r in interaction.user.roles}
+        channel_name = interaction.channel.name if interaction.channel else None
 
-        # If there are any failed checks, raise an exception
-        if reasons:
-            raise commands.CheckFailure("\n".join(reasons))
+        # Check if user has at least one of the allowed roles
+        if not (user_roles & allowed_roles):
+            await interaction.response.send_message("❌ You don't have the permitted role.", ephemeral=True)
+            return False
+
+        # Check if the channel is allowed
+        if channel_name not in allowed_channels:
+            await interaction.response.send_message("❌ This command can't be used in this channel.", ephemeral=True)
+            return False
 
         return True
 
-    return commands.check(predicate)
+    return app_commands.check(predicate)
 
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
-    print(f"Connected to {len(bot.guilds)} server(s):")
-    for guild in bot.guilds:
-        print(f" - {guild.name}")
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+    # Sync all slash commands
+    await tree.sync(guild=None)
+
+    print("Slash commands synced.")
     if not count_messages.is_running():
         count_messages.start()
 
 
 @bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CheckFailure):
-        await ctx.send(str(error))
-    else:
-        raise error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # Handle permission/check failures
+    if isinstance(error, app_commands.CheckFailure):
+        # Our predicate already sent its own ephemeral message
+        return
+    # Fallback: re‐raise so we get traceback in console
+    raise error
 
 
 @tasks.loop(hours=1)
 async def count_messages():
-
     guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
-
-    message_counts = {}
-    word_counts = {}
-    
+    message_counts: dict[str, int] = {}
+    word_counts: dict[str, int] = {}
     target_roles = ['Member', 'Alumni']
-    role_objects = [discord.utils.get(guild.roles, name=role_name) for role_name in target_roles]
+    role_objs = [discord.utils.get(guild.roles, name=r) for r in target_roles]
 
-    scanned_channels = []
-    for channel in guild.text_channels:
-        if not any(channel.permissions_for(role).view_channel for role in role_objects if role):
+    scanned = []
+    for ch in guild.text_channels:
+        if not any(ch.permissions_for(role).view_channel for role in role_objs if role):
             continue
         try:
-            async for message in channel.history(limit=None):
-                if message.author is None or message.author.bot:
+            async for msg in ch.history(limit=None):
+                if msg.author.bot or msg.author is None:
                     continue
-
-                name = message.author.display_name
-                if name not in message_counts:
-                    message_counts[name] = 0
-                    word_counts[name] = 0
-
+                name = msg.author.display_name
+                message_counts.setdefault(name, 0)
+                word_counts.setdefault(name, 0)
                 message_counts[name] += 1
-                word_counts[name] += len(message.content.split())
-
+                word_counts[name] += len(msg.content.split())
         except discord.Forbidden:
-            print(f"Skipping inaccessible channel: {channel.name}")
-        except discord.HTTPException as e:
-            print(f"Error in {channel.name}: {e}")
+            continue
+        scanned.append(ch.name)
 
-        scanned_channels.append(channel.name)
-
-    df_messages = pd.DataFrame([
-        {
-            "Name": name,
-            "Message Count": message_counts[name],
-            "Word Count": word_counts[name]
-        }
-        for name in message_counts
+    df = pd.DataFrame([
+        {"Name": n, "Message Count": message_counts[n], "Word Count": word_counts[n]}
+        for n in message_counts
     ])
-    df_top_messages = df_messages.sort_values(by="Message Count", ascending=False, ignore_index=True).head(10)
-    df_top_words = df_messages.sort_values(by="Word Count", ascending=False, ignore_index=True).head(10)
-
-    df_top_messages.to_csv("top_messages.csv")
-    df_top_words.to_csv("top_words.csv")
-    
+    df.sort_values("Message Count", ascending=False).head(10).to_csv("top_messages.csv", index=False)
+    df.sort_values("Word Count", ascending=False).head(10).to_csv("top_words.csv", index=False)
     with open("channels.txt", "w", encoding="utf-8") as f:
-        for channel in scanned_channels:
-            f.write(channel + "\n")
-    
+        f.write("\n".join(scanned))
     global last_update
     last_update = datetime.datetime.now(SGT)
 
 
-@bot.command()
-@restrict()
-async def piano_groups(ctx):
-    """Shows a pie chart of piano-playing groups of current members in NYP PE."""
-    
-    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
+@tree.command(name="piano_groups", description="Pie chart of piano-playing groups of current members.")
+@has_allowed_role_and_channel()
+async def piano_groups(interaction: discord.Interaction):
+    guild = interaction.guild
     count_dict = {"Advanced": 0, "Intermediate": 0, "Novice": 0, "Foundational": 0}
 
-    for member in guild.members:
-        if member.bot:
+    for m in guild.members:
+        if m.bot:
             continue
-        role_names = [role.name for role in member.roles]
-
-        if "Member" in role_names:  # Obtain current members only
-            if "Advanced" in role_names:
+        roles = {r.name for r in m.roles}
+        if "Member" in roles:  # Obtain current members only
+            if "Advanced" in roles:
                 count_dict["Advanced"] += 1
-            elif "Intermediate" in role_names:
+            elif "Intermediate" in roles:
                 count_dict["Intermediate"] += 1
-            elif "Novice" in role_names:
+            elif "Novice" in roles:
                 count_dict["Novice"] += 1
-            elif "Foundational" in role_names:
+            elif "Foundational" in roles:
                 count_dict["Foundational"] += 1
 
     # Generate pie chart for roles
@@ -185,207 +165,166 @@ async def piano_groups(ctx):
     )
 
     # Save the figure to an image in memory
-    img_bytes = BytesIO()
-    fig.write_image(img_bytes, format='png')
-    img_bytes.seek(0)
+    buf = BytesIO()
+    fig.write_image(buf, format="png")
+    buf.seek(0)
 
-    await ctx.send("Here is the pie chart for piano-playing groups:", file=discord.File(img_bytes, 'piano_groups.png'))
-
-
-@bot.command()
-@restrict()
-async def list_current_exco(ctx):
-    """Lists the names of those in the current EXCO."""
-    
-    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
-
-    current_exco_list = []
-    for member in guild.members:
-            if any(role.name == 'Current EXCO' for role in member.roles):
-                current_exco_list.append(member.display_name)
-
-    current_exco_list = sorted(current_exco_list, key=lambda name: name.lower())
-    current_exco_list_text = "**Here are the names of those in the current EXCO:**\n" + "\n".join(f"- {name}" for name in current_exco_list)
-    await ctx.send(current_exco_list_text)
+    await interaction.response.send_message(file=discord.File(buf, "piano_groups.png"))
 
 
-@bot.command()
-@restrict()
-async def list_piano_group_members(ctx):
-    """Prompts for a piano-playing group and lists members with that role (excluding alumni)."""
+@tree.command(name="list_current_exco", description="Lists names of those in the current EXCO.")
+@has_allowed_role_and_channel()
+async def list_current_exco(interaction: discord.Interaction):
+    guild = interaction.guild
+    exco = sorted([m.display_name for m in guild.members if any(r.name=="Current EXCO" for r in m.roles)], key=str.lower)
+    text = "**Names of Current EXCO Members:**\n" + "\n".join(f"- {n}" for n in exco)
+    await interaction.response.send_message(text)
 
-    class PianoGroupDropdown(Select):
+
+@tree.command(name="list_piano_group_members", description="Select a piano group and list its members (excl. alumni).")
+@has_allowed_role_and_channel()
+async def list_piano_group_members(interaction: discord.Interaction):
+
+    class Dropdown(Select):
         def __init__(self):
-            options = [
-                discord.SelectOption(label="Foundational"),
-                discord.SelectOption(label="Novice"),
-                discord.SelectOption(label="Intermediate"),
-                discord.SelectOption(label="Advanced"),
-            ]
-            super().__init__(placeholder="Choose a piano group...", min_values=1, max_values=1, options=options)
 
-        async def callback(self, interaction: discord.Interaction):
-            selected_group = self.values[0]
-            guild = interaction.guild
+            # Create dropdown options for each piano group
+            opts = [discord.SelectOption(label=g) for g in ["Foundational","Novice","Intermediate","Advanced"]]
+            super().__init__(placeholder="Choose a group…", min_values=1, max_values=1, options=opts)
 
-            members_in_group = []
-            for member in guild.members:
-                role_names = [role.name for role in member.roles]
-                if selected_group in role_names and "Member" in role_names:
-                    members_in_group.append(member.display_name)
 
-            if members_in_group:
-                members_in_group.sort()
-                member_list = "\n".join(f"- {name}" for name in members_in_group)
-                response = f"**Members in the {selected_group} group (excluding alumni):**\n{member_list}"
+        async def callback(self, inter: discord.Interaction):
+            grp = self.values[0]
+
+            # Get list of members from the selected group (excluding alumni)
+            names = [m.display_name for m in inter.guild.members if grp in {r.name for r in m.roles} and "Member" in {r.name for r in m.roles}]
+            
+            # If there are members in the group, sort and display their names
+            if names:
+                names.sort(key=str.lower)
+                out = "\n".join(f"- {n}" for n in names)
+                await inter.response.send_message(f"**{grp} members:**\n{out}", ephemeral=True)
             else:
-                response = f"No current members found in the {selected_group} group."
-
-            await interaction.response.send_message(response, ephemeral=True)
-
-    class PianoGroupView(View):
-        def __init__(self):
-            super().__init__()
-            self.add_item(PianoGroupDropdown())
-
-    await ctx.send("Please select a piano-playing group:", view=PianoGroupView())
+                await inter.response.send_message(f"No current members in {grp}.", ephemeral=True)
 
 
-@bot.command()
-@restrict()
-async def message_stats(ctx):
-    """Shows 2 horizontal bar charts of total message and word counts respectively, in descending order, for both current members and alumni of NYP PE."""
+    # Create a view for the select dropdown
+    view = View()
+    view.add_item(Dropdown())
+    
+    await interaction.response.send_message("Please select a group:", view=view, ephemeral=True)
 
+
+@tree.command(name="message_stats", description="Bar charts of total messages & word counts by user.")
+@has_allowed_role_and_channel()
+async def message_stats(interaction: discord.Interaction):
     with open("channels.txt", "r", encoding="utf-8") as f:
-        scanned_channels = [line.strip() for line in f if line.strip()]
-
-    df_top_messages = pd.read_csv('top_messages.csv')
-    df_top_words = pd.read_csv('top_words.csv')
+        channels = f.read().splitlines()
+    
+    df_msg = pd.read_csv("top_messages.csv")
+    df_words = pd.read_csv("top_words.csv")
 
     # Create a horizontal bar chart of message counts
-    fig_messages = go.Figure(data=go.Bar(
-        x=df_top_messages["Message Count"],
-        y=df_top_messages["Name"],
+    fig1 = go.Figure(data=go.Bar(
+        x=df_msg["Message Count"],
+        y=df_msg["Name"],
         orientation='h',
-        text=df_top_messages["Message Count"],
+        text=df_msg["Message Count"],
         marker=dict(color='#1985a1')
     ))
-    fig_messages.update_layout(
+    fig1.update_layout(
         title='Top 10 Message Senders',
         xaxis_title='Total Messages',
         yaxis_title='Name',
-        yaxis=dict(
-            autorange='reversed',
-            ticksuffix='  '
-        ),
+        yaxis=dict(autorange='reversed', ticksuffix='  '),
         plot_bgcolor='white',
         title_x=0.5
     )
+    buf1 = BytesIO()
+    fig1.write_image(buf1, format="png")
+    buf1.seek(0)
 
     # Create a horizontal bar chart of word counts
-    fig_words = go.Figure(data=go.Bar(
-        x=df_top_words["Word Count"],
-        y=df_top_words["Name"],
+    fig2 = go.Figure(data=go.Bar(
+        x=df_words["Word Count"],
+        y=df_words["Name"],
         orientation='h',
-        text=df_top_words["Word Count"],
+        text=df_words["Word Count"],
         marker=dict(color='#284b63')
     ))
-    fig_words.update_layout(
+    fig2.update_layout(
         title='Top 10 Users by Word Count',
         xaxis_title='Total Words',
         yaxis_title='Name',
-        yaxis=dict(
-            autorange='reversed',
-            ticksuffix='  '
-        ),
+        yaxis=dict(autorange='reversed', ticksuffix='  '),
         plot_bgcolor='white',
         title_x=0.5
     )
+    buf2 = BytesIO()
+    fig2.write_image(buf2, format="png")
+    buf2.seek(0)
 
-    # Save the figures to images in memory
-    img_bytes_1 = BytesIO()
-    fig_messages.write_image(img_bytes_1, format='png')
-    img_bytes_1.seek(0)
-
-    img_bytes_2 = BytesIO()
-    fig_words.write_image(img_bytes_2, format='png')
-    img_bytes_2.seek(0)
-
-    channel_list_text = "**Scanned Channels:**\n" + "\n".join(f"- {name}" for name in scanned_channels)
-    await ctx.send(channel_list_text)
-
-    await ctx.send("Message Count Chart:", file=discord.File(img_bytes_1, 'message_count.png'))
-    await ctx.send("Word Count Chart:", file=discord.File(img_bytes_2, 'word_count.png'))
-    await ctx.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
+    # Send channel list header and the images
+    header = "**Scanned Channels:**\n" + "\n".join(f"- {c}" for c in channels)
+    await interaction.response.send_message(header)
+    await interaction.followup.send(file=discord.File(buf1, "message_count.png"))
+    await interaction.followup.send(file=discord.File(buf2, "word_count.png"))
+    await interaction.followup.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
 
 
-@bot.command()
-@restrict(forbidden_roles=['Member', 'Alumni'], forbidden_channels=['💬┃general'])
-async def members_details(ctx):
-    """Lists all available details relating to members and alumni in Excel format."""
-    
-    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
-    
-    member_data = []
+@tree.command(name="members_details", description="Exports member & alumni details to Excel.")
+@has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
+async def members_details(interaction: discord.Interaction):
+    guild = interaction.guild
+    rows = []
+    for m in guild.members:
+        if m.bot: continue
+        roles = {r.name for r in m.roles}
 
-    for member in guild.members:
-        if member.bot:
-            continue
-        if any(role.name in ["Member", "Alumni", "Current EXCO"] for role in member.roles):
-
-            # Assign role conditionally
-            if any(role.name == "Current EXCO" for role in member.roles):
-                role_status = "Current EXCO"
-            elif any(role.name == "Alumni" for role in member.roles):
-                role_status = "Alumni"
-            elif any(role.name == "Member" for role in member.roles):
-                role_status = "Member"
+        # Assign role conditionally
+        if roles & {"Member","Alumni","Current EXCO"}:
+            if "Current EXCO" in roles:
+                status = "Current EXCO"
+            elif "Alumni" in roles:
+                status = "Alumni"
             else:
-                role_status = "None"
+                status = "Member"
 
             # Determine piano-playing group based on roles
-            piano_roles = ["Advanced", "Intermediate", "Novice", "Foundational"]
-            piano_group = [role.name for role in member.roles if role.name in piano_roles]
-            piano_group_status = ", ".join(piano_group) if piano_group else "None"
-
-            # Append member details to the list
-            member_data.append({
-                'Discord_Username': member.name,
-                'Name': member.nick or "None",
-                'Role': role_status,
-                'Piano_Playing_Group': piano_group_status,
-                'Joined_Server_Time': member.joined_at.strftime("%Y-%m-%d %H:%M:%S")
+            pg = ", ".join(r for r in roles if r in {"Advanced","Intermediate","Novice","Foundational"}) or "None"
+            rows.append({
+                'Discord_Username': m.name,
+                'Name': m.nick or "None",
+                'Role': status,
+                'Piano_Playing_Group': pg,
+                'Joined_Server_Time': m.joined_at.astimezone(SGT).strftime("%Y-%m-%d %H:%M:%S")
             })
-    
-    df = pd.DataFrame(member_data)
-    excel_filename = 'members_details.xlsx'
-    df.to_excel(excel_filename, index=False)
+
+    df = pd.DataFrame(rows)
+    fname = "members_details.xlsx"
+    df.to_excel(fname, index=False)
 
     # Load the workbook and convert the sheet to a table
-    wb = load_workbook(excel_filename)
+    wb = load_workbook(fname)
     ws = wb.active
 
     # Define the table range and name
-    table_ref = f"A1:{chr(64 + len(df.columns))}{len(df) + 1}"
-    table = Table(displayName="MemberTable", ref=table_ref)
+    tab_ref = f"A1:{get_column_letter(len(df.columns))}{len(df)+1}"
+    tbl = Table(displayName="MemberTable", ref=tab_ref)
 
     # Add style to the table
-    style = TableStyleInfo(name="TableStyleLight18", showFirstColumn=False,
-                        showLastColumn=False, showRowStripes=True, showColumnStripes=False)
-    table.tableStyleInfo = style
+    style = TableStyleInfo(name="TableStyleLight18", showRowStripes=True)
+    tbl.tableStyleInfo = style
+    ws.add_table(tbl)
 
     # Auto-adjust column widths
-    for column_cells in ws.columns:
-        length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-        column_letter = get_column_letter(column_cells[0].column)
-        ws.column_dimensions[column_letter].width = length + 2
+    for col in ws.columns:
+        max_len = max(len(str(c.value)) for c in col)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
+    wb.save(fname)
 
-    # Add the table and save the workbook
-    ws.add_table(table)
-    wb.save(excel_filename)
-
-    await ctx.send("Details relating to members and alumni have been exported to an Excel file.", file=discord.File(excel_filename))
-    os.remove(excel_filename)
+    await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
+    os.remove(fname)
 
 
-bot.run(token)
+bot.run(TOKEN)
