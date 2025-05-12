@@ -67,20 +67,18 @@ async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
     # Sync all slash commands
-    await tree.sync(guild=None)
+    guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
+    if guild:
+        await tree.sync(guild=discord.Object(id=guild.id))
 
-    print("Slash commands synced.")
     if not count_messages.is_running():
         count_messages.start()
 
 
 @bot.event
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    # Handle permission/check failures
     if isinstance(error, app_commands.CheckFailure):
-        # Our predicate already sent its own ephemeral message
         return
-    # Fallback: re‐raise so we get traceback in console
     raise error
 
 
