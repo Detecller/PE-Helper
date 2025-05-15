@@ -214,7 +214,7 @@ async def list_piano_group_members(interaction: discord.Interaction):
 
 
 @tree.command(name="message_stats", description="Bar charts of total messages & word counts by user.")
-@has_allowed_role_and_channel()
+@has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
 async def message_stats(interaction: discord.Interaction):
     with open("channels.txt", "r", encoding="utf-8") as f:
         channels = f.read().splitlines()
