@@ -1,0 +1,117 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+from discord.ui import Select, View
+from utils.permissions import has_allowed_role_and_channel
+from utils.variables import SGT
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
+import os
+
+
+class Members(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="list_current_exco", description="Lists names of those in the current EXCO.")
+    @has_allowed_role_and_channel()
+    async def list_current_exco(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        exco = sorted([m.display_name for m in guild.members if any(r.name=="Current EXCO" for r in m.roles)], key=str.lower)
+        text = "**Names of Current EXCO Members:**\n" + "\n".join(f"- {n}" for n in exco)
+        await interaction.response.send_message(text)
+
+    
+    @app_commands.command(name="members_details", description="Exports member & alumni details to Excel.")
+    @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
+    async def members_details(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        rows = []
+        for m in guild.members:
+            if m.bot: continue
+            roles = {r.name for r in m.roles}
+
+            # Assign role conditionally
+            if roles & {"Member","Alumni","Current EXCO"}:
+                if "Current EXCO" in roles:
+                    status = "Current EXCO"
+                elif "Alumni" in roles:
+                    status = "Alumni"
+                else:
+                    status = "Member"
+
+                # Determine piano-playing group based on roles
+                pg = ", ".join(r for r in roles if r in {"Advanced","Intermediate","Novice","Foundational"}) or "None"
+                rows.append({
+                    'Discord_Username': m.name,
+                    'Name': m.nick or "None",
+                    'Role': status,
+                    'Piano_Playing_Group': pg,
+                    'Joined_Server_Time': m.joined_at.astimezone(SGT).strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+        df = pd.DataFrame(rows)
+        fname = "members_details.xlsx"
+        df.to_excel(fname, index=False)
+
+        # Load the workbook and convert the sheet to a table
+        wb = load_workbook(fname)
+        ws = wb.active
+
+        # Define the table range and name
+        tab_ref = f"A1:{get_column_letter(len(df.columns))}{len(df)+1}"
+        tbl = Table(displayName="MemberTable", ref=tab_ref)
+
+        # Add style to the table
+        style = TableStyleInfo(name="TableStyleLight18", showRowStripes=True)
+        tbl.tableStyleInfo = style
+        ws.add_table(tbl)
+
+        # Auto-adjust column widths
+        for col in ws.columns:
+            max_len = max(len(str(c.value)) for c in col)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
+        wb.save(fname)
+
+        await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
+        os.remove(fname)
+
+    
+    @app_commands.command(name="list_piano_group_members", description="Select a piano group and list its members (excl. alumni).")
+    @has_allowed_role_and_channel()
+    async def list_piano_group_members(self, interaction: discord.Interaction):
+
+        class Dropdown(Select):
+            def __init__(self):
+
+                # Create dropdown options for each piano group
+                opts = [discord.SelectOption(label=g) for g in ["Foundational","Novice","Intermediate","Advanced"]]
+                super().__init__(placeholder="Choose a group…", min_values=1, max_values=1, options=opts)
+
+
+            async def callback(self, inter: discord.Interaction):
+                grp = self.values[0]
+
+                # Get list of members from the selected group (excluding alumni)
+                names = [m.display_name for m in inter.guild.members if grp in {r.name for r in m.roles} and "Member" in {r.name for r in m.roles}]
+                
+                # If there are members in the group, sort and display their names
+                if names:
+                    names.sort(key=str.lower)
+                    out = "\n".join(f"- {n}" for n in names)
+                    await inter.response.send_message(f"**{grp} members:**\n{out}", ephemeral=True)
+                else:
+                    await inter.response.send_message(f"No current members in {grp}.", ephemeral=True)
+
+
+        # Create a view for the select dropdown
+        view = View()
+        view.add_item(Dropdown())
+        
+        await interaction.response.send_message("Please select a group:", view=view, ephemeral=True)
+
+
+async def setup(bot: commands.bot):
+    await bot.add_cog(Members(bot))
