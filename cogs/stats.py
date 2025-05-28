@@ -12,56 +12,8 @@ import datetime
 class Stats(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-    #     self.count_messages_task = None
 
 
-    # @commands.Cog.listener()
-    # async def on_ready(self):
-    #     if self.count_messages_task is None or not self.count_messages_task.is_running():
-    #         print("Starting count_messages loop...")
-    #         self.count_messages_task = self.count_messages.start()
-    #     else:
-    #         print("count_messages task already running.")
-
-
-    # @tasks.loop(hours=1)
-    # async def count_messages(self):
-    #     guild = discord.utils.get(self.bot.guilds, name="NYP Piano Ensemble")
-    #     message_counts: dict[str, int] = {}
-    #     word_counts: dict[str, int] = {}
-    #     target_roles = ['Member', 'Alumni']
-    #     role_objs = [discord.utils.get(guild.roles, name=r) for r in target_roles]
-
-    #     scanned = []
-    #     for ch in guild.text_channels:
-    #         if not any(ch.permissions_for(role).view_channel for role in role_objs if role):
-    #             continue
-    #         try:
-    #             async for msg in ch.history(limit=None):
-    #                 if not isinstance(msg.author, discord.Member) or msg.author.bot:
-    #                     continue
-    #                 name = msg.author.display_name
-    #                 message_counts.setdefault(name, 0)
-    #                 word_counts.setdefault(name, 0)
-    #                 message_counts[name] += 1
-    #                 word_counts[name] += len(msg.content.split())
-    #         except discord.Forbidden:
-    #             continue
-    #         scanned.append(ch.name)
-
-    #     df = pd.DataFrame([
-    #         {"Name": n, "Message Count": message_counts[n], "Word Count": word_counts[n]}
-    #         for n in message_counts
-    #     ])
-        
-    #     df.sort_values("Message Count", ascending=False).head(10).to_csv("data/top_messages.csv", index=False)
-    #     df.sort_values("Word Count", ascending=False).head(10).to_csv("data/top_words.csv", index=False)
-    #     with open("data/channels.txt", "w", encoding="utf-8") as f:
-    #         f.write("\n".join(scanned))
-    #     global last_update
-    #     last_update = datetime.datetime.now(SGT)
-
-    
     @app_commands.command(name="piano_groups", description="Pie chart of piano-playing groups of current members.")
     @has_allowed_role_and_channel()
     async def piano_groups(self, interaction: discord.Interaction):
