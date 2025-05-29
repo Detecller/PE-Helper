@@ -21,7 +21,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Initialize logging before anything else
 setup_logging()
 
-# Get your bot logger
+# Get logger
 logger = logging.getLogger("pe_helper")
 
 

@@ -10,11 +10,12 @@ import asyncio
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 import time
 import logging
 
 
+# Get logger
 logger = logging.getLogger("pe_helper")
 
 
@@ -27,19 +28,25 @@ class BackgroundTasks(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        logger.info("Starting background tasks.")
         if self.count_messages_task is None or not self.count_messages_task.is_running():
             self.count_messages_task = self.count_messages.start()
         else:
             logger.info("count_messages task already running.")
         
         if self.collect_links_task is None:
-            logger.info("Starting collect_links loop.")
+            logger.info("Starting collect_links_time loop.")
             self.collect_links_task = self.bot.loop.create_task(self.collect_links_time())
+        else:
+            logger.info("collect_links_time loop already running.")
 
     
     async def collect_links_time(self):
-        # Run immediately on startup
-        await self.collect_and_scrape()
+        try:
+            logger.info("Running initial collect_and_scrape on startup.")
+            await self.collect_and_scrape()
+        except Exception as e:
+            logger.error(f"Error during initial collect_and_scrape: {e}")
 
         while True:
             now = datetime.datetime.now(datetime.timezone.utc).astimezone()
@@ -52,9 +59,12 @@ class BackgroundTasks(commands.Cog):
                 target_time += datetime.timedelta(days=1)
 
             wait_seconds = (target_time - now).total_seconds()
-
+            logger.info(f"collect_links_time sleeping for {wait_seconds:.2f} seconds until next 5 PM SGT.")
             await asyncio.sleep(wait_seconds)
-            await self.collect_and_scrape()
+            try:
+                await self.collect_and_scrape()
+            except Exception as e:
+                logger.error(f"Error during scheduled collect_and_scrape: {e}", exc_info=True)
 
 
     @tasks.loop(hours=1)
@@ -81,20 +91,29 @@ class BackgroundTasks(commands.Cog):
                     message_counts[name] += 1
                     word_counts[name] += len(msg.content.split())
             except discord.Forbidden:
+                logger.warning(f"Forbidden access to channel: {ch.name}, skipping.")
+                continue
+            except Exception as e:
+                logger.error(f"Error reading messages from channel {ch.name}: {e}", exc_info=True)
                 continue
             scanned.append(ch.name)
 
-        df = pd.DataFrame([
-            {"Name": n, "Message Count": message_counts[n], "Word Count": word_counts[n]}
-            for n in message_counts
-        ])
-        
-        df.sort_values("Message Count", ascending=False).head(10).to_csv("data/top_messages.csv", index=False)
-        df.sort_values("Word Count", ascending=False).head(10).to_csv("data/top_words.csv", index=False)
-        with open("data/channels.txt", "w", encoding="utf-8") as f:
-            f.write("\n".join(scanned))
-        global last_update
-        last_update = datetime.datetime.now(SGT)
+        try:
+            df = pd.DataFrame([
+                {"Name": n, "Message Count": message_counts[n], "Word Count": word_counts[n]}
+                for n in message_counts
+            ])
+            
+            df.sort_values("Message Count", ascending=False).head(10).to_csv("data/top_messages.csv", index=False)
+            df.sort_values("Word Count", ascending=False).head(10).to_csv("data/top_words.csv", index=False)
+            with open("data/channels.txt", "w", encoding="utf-8") as f:
+                f.write("\n".join(scanned))
+
+            global last_update
+            last_update = datetime.now(SGT)
+            logger.info("count_messages task completed and CSV files updated.")
+        except Exception as e:
+            logger.error(f"Error saving message stats CSV files: {e}")
     
 
     async def collect_links(self):
@@ -112,42 +131,60 @@ class BackgroundTasks(commands.Cog):
         # Load existing URLs
         existing_urls = set()
         if os.path.exists(csv_path):
-            with open(csv_path, mode="r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                existing_urls = {row["url"] for row in reader}
+            try:
+                with open(csv_path, mode="r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    existing_urls = {row["url"] for row in reader}
+                logger.info(f"Loaded {len(existing_urls)} existing URLs from links.csv.")
+            except Exception as e:
+                logger.error(f"Error reading links.csv: {e}")
 
         new_links = []
-        async for msg in target_channel.history(limit=None):
-            if not isinstance(msg.author, discord.Member) or msg.author.bot:
-                continue
+        try:
+            async for msg in target_channel.history(limit=None):
+                if not isinstance(msg.author, discord.Member) or msg.author.bot:
+                    continue
 
-            links = re.findall(url_pattern, msg.content)
-            for url in links:
-                if "www.signupgenius.com" in url and url not in existing_urls:
-                    new_links.append({"url": url, "scanned": 0, "state": -1})
-                    existing_urls.add(url)
+                links = re.findall(url_pattern, msg.content)
+                for url in links:
+                    if "www.signupgenius.com" in url and url not in existing_urls:
+                        new_links.append({"url": url, "scanned": 0, "state": -1})
+                        existing_urls.add(url)
+        except Exception as e:
+            logger.error(f"Error scanning messages in channel '{target_channel.name}': {e}")
+
 
         if new_links:
-            file_exists = os.path.exists(csv_path)
-            with open(csv_path, mode="a", encoding="utf-8", newline="") as f:
-                fieldnames = ["url", "scanned", "state"]
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+            try:
+                file_exists = os.path.exists(csv_path)
+                with open(csv_path, mode="a", encoding="utf-8", newline="") as f:
+                    fieldnames = ["url", "scanned", "state"]
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
 
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerows(new_links)
+                    if not file_exists:
+                        writer.writeheader()
+                    writer.writerows(new_links)
 
-            print(f"Added {len(new_links)} new links.")
+                logger.info(f"Added {len(new_links)} new links to links.csv.")
+            except Exception as e:
+                logger.error(f"Error writing to links.csv: {e}", exc_info=True)
         else:
-            print("No new links found.")
+            logger.info("No new links found to add.")
+
     
 
     # Function to scrape details from SignUpGenius
     async def scrape_link(self, link: str, df_existing: pd.DataFrame, df_links: pd.DataFrame):
+        logger.info(f"Scraping link: {link}")
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=chrome_options)
+
+        try:
+            driver = webdriver.Chrome(options=chrome_options)
+        except WebDriverException as e:
+            logger.error(f"Failed to start Chrome WebDriver: {e}", exc_info=True)
+            return df_existing, df_links
 
         # Navigate to the page
         driver.get(link)
@@ -165,6 +202,7 @@ class BackgroundTasks(commands.Cog):
             if today > date:
                 df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
                 if df_links.loc[df_links["url"] == link, "scanned"].values[0] == 1:
+                    logger.info(f"Session date passed and already scanned for link: {link}")
                     return df_existing, df_links
 
             room = driver.find_element(By.XPATH, f'//*[@id="signupcontainer"]/div[1]/div[2]/div[2]/div[4]/div/div[2]/span').text
@@ -176,6 +214,7 @@ class BackgroundTasks(commands.Cog):
 
         except NoSuchElementException:
             scrapable = False
+            logger.warning(f"Scrape failed - necessary elements not found for link: {link}")
         
         if scrapable == False:
             df_links.loc[df_links["url"] == link, "state"] = 0  # Indicate link is unscrapable
@@ -230,11 +269,13 @@ class BackgroundTasks(commands.Cog):
 
         df_new = pd.DataFrame(bookings)
         df_existing = pd.concat([df_existing, df_new], ignore_index=True)
+        logger.info(f"Scraping complete for link: {link}")
         return df_existing, df_links
 
 
     async def collect_and_scrape(self):
-        await self.collect_links()  # Just updates links.csv
+        logger.info("Starting collect_and_scrape process.")
+        await self.collect_links()
 
         links_path = "data/links.csv"
         df_links = pd.read_csv(links_path)
@@ -254,8 +295,12 @@ class BackgroundTasks(commands.Cog):
             df_existing, df_links = await self.scrape_link(url, df_existing, df_links)
 
         # Update CSVs
-        df_existing.to_csv(df_path, index=False)
-        df_links.to_csv("data/links.csv", index=False)
+        try:
+            df_links.to_csv(df_path, index=False)
+            df_existing.to_csv(links_path, index=False)
+            logger.info("Scraped data saved successfully.")
+        except Exception as e:
+            logger.error(f"Failed to save scraped data CSV files: {e}", exc_info=True)
 
 
 async def setup(bot: commands.bot):

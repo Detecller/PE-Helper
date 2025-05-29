@@ -10,6 +10,7 @@ from utils.setup_logger import log_slash_command
 import logging
 
 
+# Get logger
 logger = logging.getLogger("pe_helper")
 
 

@@ -2,6 +2,7 @@ from discord import app_commands
 import logging
 
 
+# Get logger
 logger = logging.getLogger("pe_helper")
 
 
