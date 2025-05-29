@@ -18,7 +18,7 @@ class Stats(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    
+
     @app_commands.command(name="piano_groups", description="Pie chart of piano-playing groups of current members.")
     @has_allowed_role_and_channel()
     async def piano_groups(self, interaction: discord.Interaction):
