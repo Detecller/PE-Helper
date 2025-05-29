@@ -9,6 +9,11 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 import os
+from utils.setup_logger import log_slash_command
+import logging
+
+
+logger = logging.getLogger("pe_helper")
 
 
 class Members(commands.Cog):
@@ -18,8 +23,18 @@ class Members(commands.Cog):
     @app_commands.command(name="list_current_exco", description="Lists names of those in the current EXCO.")
     @has_allowed_role_and_channel()
     async def list_current_exco(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
+
         guild = interaction.guild
         exco = sorted([m.display_name for m in guild.members if any(r.name=="Current EXCO" for r in m.roles)], key=str.lower)
+        
+        if not exco:
+            logger.warning("No current EXCO members found.")
+            await interaction.response.send_message("No current EXCO members found.")
+            return
+        
+        logger.info(f"Found {len(exco)} EXCO members.")
         text = "**Names of Current EXCO Members:**\n" + "\n".join(f"- {n}" for n in exco)
         await interaction.response.send_message(text)
 
@@ -27,6 +42,9 @@ class Members(commands.Cog):
     @app_commands.command(name="members_details", description="Exports member & alumni details to Excel.")
     @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
     async def members_details(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
+        
         guild = interaction.guild
         rows = []
         for m in guild.members:
@@ -52,6 +70,11 @@ class Members(commands.Cog):
                     'Joined_Server_Time': m.joined_at.astimezone(SGT).strftime("%Y-%m-%d %H:%M:%S")
                 })
 
+        if not rows:
+            logger.warning("No members and alumni found for Excel export.")
+            await interaction.response.send_message("No members and alumni found.")
+            return
+
         df = pd.DataFrame(rows)
         fname = "members_details.xlsx"
         df.to_excel(fname, index=False)
@@ -73,15 +96,20 @@ class Members(commands.Cog):
         for col in ws.columns:
             max_len = max(len(str(c.value)) for c in col)
             ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
+
         wb.save(fname)
+        logger.info("Excel table formatting complete.")
 
         await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
         os.remove(fname)
+        logger.info("Temporary Excel file removed.")
 
     
     @app_commands.command(name="list_piano_group_members", description="Select a piano group and list its members (excl. alumni).")
     @has_allowed_role_and_channel()
     async def list_piano_group_members(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
 
         class Dropdown(Select):
             def __init__(self):
@@ -93,6 +121,7 @@ class Members(commands.Cog):
 
             async def callback(self, inter: discord.Interaction):
                 grp = self.values[0]
+                logger.info(f"Piano group selected: {grp} by {inter.user.display_name}")
 
                 # Get list of members from the selected group (excluding alumni)
                 names = [m.display_name for m in inter.guild.members if grp in {r.name for r in m.roles} and "Member" in {r.name for r in m.roles}]
@@ -101,8 +130,10 @@ class Members(commands.Cog):
                 if names:
                     names.sort(key=str.lower)
                     out = "\n".join(f"- {n}" for n in names)
+                    logger.info(f"Listed {len(names)} members in group {grp}.")
                     await inter.response.send_message(f"**{grp} members:**\n{out}", ephemeral=True)
                 else:
+                    logger.warning(f"No current members found in group {grp}.")
                     await inter.response.send_message(f"No current members in {grp}.", ephemeral=True)
 
 
@@ -110,6 +141,7 @@ class Members(commands.Cog):
         view = View()
         view.add_item(Dropdown())
         
+        logger.info("Dropdown sent for piano group selection.")
         await interaction.response.send_message("Please select a group:", view=view, ephemeral=True)
 
 

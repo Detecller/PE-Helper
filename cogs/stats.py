@@ -1,70 +1,29 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 from utils.permissions import has_allowed_role_and_channel
-from utils.variables import SGT, last_update
+from utils.variables import last_update
 import pandas as pd
 import plotly.graph_objects as go
 from io import BytesIO
-import datetime
+from utils.setup_logger import log_slash_command
+import logging
+
+
+logger = logging.getLogger("pe_helper")
 
 
 class Stats(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-    #     self.count_messages_task = None
-
-
-    # @commands.Cog.listener()
-    # async def on_ready(self):
-    #     if self.count_messages_task is None or not self.count_messages_task.is_running():
-    #         print("Starting count_messages loop...")
-    #         self.count_messages_task = self.count_messages.start()
-    #     else:
-    #         print("count_messages task already running.")
-
-
-    # @tasks.loop(hours=1)
-    # async def count_messages(self):
-    #     guild = discord.utils.get(self.bot.guilds, name="NYP Piano Ensemble")
-    #     message_counts: dict[str, int] = {}
-    #     word_counts: dict[str, int] = {}
-    #     target_roles = ['Member', 'Alumni']
-    #     role_objs = [discord.utils.get(guild.roles, name=r) for r in target_roles]
-
-    #     scanned = []
-    #     for ch in guild.text_channels:
-    #         if not any(ch.permissions_for(role).view_channel for role in role_objs if role):
-    #             continue
-    #         try:
-    #             async for msg in ch.history(limit=None):
-    #                 if not isinstance(msg.author, discord.Member) or msg.author.bot:
-    #                     continue
-    #                 name = msg.author.display_name
-    #                 message_counts.setdefault(name, 0)
-    #                 word_counts.setdefault(name, 0)
-    #                 message_counts[name] += 1
-    #                 word_counts[name] += len(msg.content.split())
-    #         except discord.Forbidden:
-    #             continue
-    #         scanned.append(ch.name)
-
-    #     df = pd.DataFrame([
-    #         {"Name": n, "Message Count": message_counts[n], "Word Count": word_counts[n]}
-    #         for n in message_counts
-    #     ])
-        
-    #     df.sort_values("Message Count", ascending=False).head(10).to_csv("data/top_messages.csv", index=False)
-    #     df.sort_values("Word Count", ascending=False).head(10).to_csv("data/top_words.csv", index=False)
-    #     with open("data/channels.txt", "w", encoding="utf-8") as f:
-    #         f.write("\n".join(scanned))
-    #     global last_update
-    #     last_update = datetime.datetime.now(SGT)
 
     
     @app_commands.command(name="piano_groups", description="Pie chart of piano-playing groups of current members.")
     @has_allowed_role_and_channel()
     async def piano_groups(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
+
         guild = interaction.guild
         count_dict = {"Advanced": 0, "Intermediate": 0, "Novice": 0, "Foundational": 0}
 
@@ -81,6 +40,8 @@ class Stats(commands.Cog):
                     count_dict["Novice"] += 1
                 elif "Foundational" in roles:
                     count_dict["Foundational"] += 1
+
+        logger.info(f"Counting of members in piano groups successful.")
 
         # Generate pie chart for roles
         labels = ["Foundational", "Novice", "Intermediate", "Advanced"]
@@ -110,17 +71,36 @@ class Stats(commands.Cog):
         fig.write_image(buf, format="png")
         buf.seek(0)
 
-        await interaction.response.send_message(file=discord.File(buf, "piano_groups.png"))
+        try:
+            await interaction.response.send_message(file=discord.File(buf, "piano_groups.png"))
+            logger.info("Piano groups pie chart sent successfully.")
+        except Exception as e:
+            logger.error(f"Failed to send piano groups pie chart: {e}")
 
 
     @app_commands.command(name="message_stats", description="Bar charts of total messages & word counts by user.")
     @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
     async def message_stats(self, interaction: discord.Interaction):
-        with open("data/channels.txt", "r", encoding="utf-8") as f:
-            channels = f.read().splitlines()
+
+        log_slash_command(logger, interaction)
+
+        try:
+            with open("data/channels.txt", "r", encoding="utf-8") as f:
+                channels = f.read().splitlines()
+            logger.info(f"Loaded {len(channels)} channels from file.")
+        except Exception as e:
+            logger.error(f"Failed to read channels.txt: {e}")
+            await interaction.response.send_message("Error reading channels data.", ephemeral=True)
+            return
         
-        df_msg = pd.read_csv("data/top_messages.csv")
-        df_words = pd.read_csv("data/top_words.csv")
+        try:
+            df_msg = pd.read_csv("data/top_messages.csv")
+            df_words = pd.read_csv("data/top_words.csv")
+            logger.info(f"Loaded message and word count CSV files.")
+        except Exception as e:
+            logger.error(f"Failed to read CSV files: {e}")
+            await interaction.response.send_message("Error reading stats data.", ephemeral=True)
+            return
 
         # Create a horizontal bar chart of message counts
         fig1 = go.Figure(data=go.Bar(
@@ -164,10 +144,14 @@ class Stats(commands.Cog):
 
         # Send channel list header and the images
         header = "**Scanned Channels:**\n" + "\n".join(f"- {c}" for c in channels)
-        await interaction.response.send_message(header)
-        await interaction.followup.send(file=discord.File(buf1, "message_count.png"))
-        await interaction.followup.send(file=discord.File(buf2, "word_count.png"))
-        await interaction.followup.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
+        try:
+            await interaction.response.send_message(header)
+            await interaction.followup.send(file=discord.File(buf1, "message_count.png"))
+            await interaction.followup.send(file=discord.File(buf2, "word_count.png"))
+            await interaction.followup.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
+            logger.info("Sent message stats charts and last updated info.")
+        except Exception as e:
+            logger.error(f"Failed to send message stats charts: {e}")
 
 
 async def setup(bot: commands.bot):

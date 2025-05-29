@@ -10,9 +10,12 @@ import asyncio
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
 import time
+import logging
+
+
+logger = logging.getLogger("pe_helper")
 
 
 class BackgroundTasks(commands.Cog):
@@ -25,13 +28,12 @@ class BackgroundTasks(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         if self.count_messages_task is None or not self.count_messages_task.is_running():
-            print("Starting count_messages")
             self.count_messages_task = self.count_messages.start()
         else:
-            print("count_messages task already running.")
+            logger.info("count_messages task already running.")
         
         if self.collect_links_task is None:
-            print("Starting collect_links")
+            logger.info("Starting collect_links loop.")
             self.collect_links_task = self.bot.loop.create_task(self.collect_links_time())
 
     
@@ -57,6 +59,8 @@ class BackgroundTasks(commands.Cog):
 
     @tasks.loop(hours=1)
     async def count_messages(self):
+        logger.info("Starting count_messages task.")
+
         guild = discord.utils.get(self.bot.guilds, name="NYP Piano Ensemble")
         message_counts: dict[str, int] = {}
         word_counts: dict[str, int] = {}
@@ -99,7 +103,7 @@ class BackgroundTasks(commands.Cog):
 
         # Check if weekly session channel exists
         if not target_channel:
-            print("Channel not found.")
+            logger.error("Channel not found.")
             return
 
         url_pattern = r'https?://\S+'
@@ -239,7 +243,7 @@ class BackgroundTasks(commands.Cog):
         links_to_scan = df_links[df_links["state"].isin([-1, 1])]["url"].tolist()
 
         if not links_to_scan:
-            print("No unscanned links to scrape.")
+            logger.info("No unscanned links to scrape.")
             return
 
         df_path = "data/all_bookings.csv"
