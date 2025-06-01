@@ -32,4 +32,4 @@ def log_slash_command(logger, interaction: discord.Interaction):
     command_name = interaction.command.name if interaction.command else "unknown"
     user = interaction.user
     channel = interaction.channel
-    logger.info(f"/{command_name} used by {user.display_name} ({user.id}) in #{channel}")
+    logger.info(f"/{command_name} used by {user.display_name} (ID: {user.id}) in #{channel}")

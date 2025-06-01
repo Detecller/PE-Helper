@@ -176,6 +176,11 @@ class Stats(commands.Cog):
         grouped = df_sessions.groupby(['date', 'room']).size().reset_index(name='registrants')
         pivot_df = grouped.pivot(index='date', columns='room', values='registrants').fillna(0)
 
+        label_colors = {
+            "PR9": "#102542",
+            "PR10": "#1f7a8c"
+        }
+
         # Create line chart
         fig = go.Figure()
 
@@ -184,15 +189,30 @@ class Stats(commands.Cog):
                 x=pivot_df.index,
                 y=pivot_df[room],
                 mode='lines+markers',
-                name=str(room)
+                name=str(room),
+                line=dict(color=label_colors.get(room))  # fallback to black if undefined
             ))
 
         fig.update_layout(
             title=f"Trends in Room Registrations for AY{current_ay}",
-            xaxis_title="Date",
+            xaxis_title="Month",
             yaxis_title="Number of Registrants",
             plot_bgcolor='white',
-            title_x=0.5
+            title_x=0.5,
+            xaxis=dict(
+                tickformat="%b",
+                dtick="M1",
+                showgrid=True,
+                gridcolor="lightgray",
+                griddash="dash",
+                ticklabelmode="period",
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="lightgray",
+                griddash="dot",
+                rangemode="tozero"
+            )
         )
 
         buf = BytesIO()
