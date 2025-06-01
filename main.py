@@ -9,6 +9,7 @@ from utils.setup_logger import setup_logging
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+APP_ID = int(os.getenv("APPLICATION_ID"))
 
 intents = discord.Intents.default()
 intents.members = True
@@ -16,7 +17,22 @@ intents.guilds = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+class MyBot(commands.Bot):
+    async def setup_hook(self):
+        extensions = ["cogs.members", "cogs.stats", "cogs.background_tasks"]
+        
+        for extension in extensions:
+            try:
+                await bot.load_extension(extension)
+                logger.info(f"Loaded: {extension}")
+
+            except Exception as e:
+                logger.error(f"Failed to load {extension}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+
+
+bot = MyBot(command_prefix="!", intents=intents, application_id=APP_ID)
 
 # Initialize logging before anything else
 setup_logging()
@@ -30,13 +46,16 @@ async def on_ready():
     logger.info(f"Logged in as {bot.user}")
     guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
     if guild:
-        await bot.tree.sync(guild=guild)
-        logger.info(f"Slash commands synced to: {guild.name}")
+        try:
+            # Sync commands
+            logger.info("Syncing commands...")
+            synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
+            logger.info(f"Synced {len(synced)} guild commands: {[cmd.name for cmd in synced]}")
+            
+        except Exception as e:
+            logger.error(f"Error in on_ready: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
-async def main(): 
-    await bot.load_extension("cogs")
-    await bot.start(TOKEN)
-
-
-asyncio.run(main())
+bot.run(TOKEN)

@@ -40,7 +40,7 @@ class BackgroundTasks(commands.Cog):
         else:
             logger.info("collect_links_time loop already running.")
 
-    
+
     async def collect_links_time(self):
         try:
             logger.info("Running initial collect_and_scrape on startup.")
@@ -49,7 +49,7 @@ class BackgroundTasks(commands.Cog):
             logger.error(f"Error during initial collect_and_scrape: {e}")
 
         while True:
-            now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+            now = datetime.now(SGT).astimezone()
 
             # Set target to today at 5 PM
             target_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
@@ -199,11 +199,9 @@ class BackgroundTasks(commands.Cog):
             
             today = datetime.now(SGT).date()
 
-            if today > date:
-                df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
-                if df_links.loc[df_links["url"] == link, "scanned"].values[0] == 1:
-                    logger.info(f"Session date passed and already scanned for link: {link}")
-                    return df_existing, df_links
+            if today > date and df_links.loc[df_links["url"] == link, "scanned"].values[0] == 1:
+                logger.info(f"Session date passed and already scanned for link: {link}")
+                return df_existing, df_links
 
             room = driver.find_element(By.XPATH, f'//*[@id="signupcontainer"]/div[1]/div[2]/div[2]/div[4]/div/div[2]/span').text
 
@@ -211,16 +209,14 @@ class BackgroundTasks(commands.Cog):
             if not df_existing.empty:
                 df_existing = df_existing[~((df_existing["date"] == date) & (df_existing["room"] == room))]
 
-
         except NoSuchElementException:
             scrapable = False
             logger.warning(f"Scrape failed - necessary elements not found for link: {link}")
         
+
         if scrapable == False:
             df_links.loc[df_links["url"] == link, "state"] = 0  # Indicate link is unscrapable
             return df_existing, df_links
-
-        df_links.loc[df_links["url"] == link, "state"] = 1
 
         bookings = []
         i = 1
@@ -252,6 +248,10 @@ class BackgroundTasks(commands.Cog):
                         admin_num = find_with_fallback(driver, [admin_num_xpath_3, admin_num_xpath_4]).get_attribute("textContent")
 
                         df_links.loc[df_links["url"] == link, "scanned"] = 1  # Flag that link has been scrapped successfully
+                        if today > date:
+                            df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
+                        else:
+                            df_links.loc[df_links["url"] == link, "state"] = 1  # Indicate weekly session has not passed
                         bookings.append({
                             "date": date,
                             "room": room,
@@ -294,14 +294,24 @@ class BackgroundTasks(commands.Cog):
         for url in links_to_scan:
             df_existing, df_links = await self.scrape_link(url, df_existing, df_links)
 
+        # Get academic year for each date
+        def get_academic_year(date):
+            ay_start = datetime(date.year, 4, 1).date()
+            if date >= ay_start:
+                return date.year
+            else:
+                return date.year - 1
+
+        df_existing['AY'] = df_existing['date'].apply(get_academic_year)
+
         # Update CSVs
         try:
-            df_links.to_csv(df_path, index=False)
-            df_existing.to_csv(links_path, index=False)
+            df_existing.to_csv(df_path, index=False)
+            df_links.to_csv(links_path, index=False)
             logger.info("Scraped data saved successfully.")
         except Exception as e:
             logger.error(f"Failed to save scraped data CSV files: {e}", exc_info=True)
 
 
-async def setup(bot: commands.bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(BackgroundTasks(bot))

@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Object
 from utils.permissions import has_allowed_role_and_channel
 from utils.variables import last_update
 import pandas as pd
@@ -8,7 +8,12 @@ import plotly.graph_objects as go
 from io import BytesIO
 from utils.setup_logger import log_slash_command
 import logging
+from datetime import datetime
+from utils.variables import SGT
+import os
 
+
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 # Get logger
 logger = logging.getLogger("pe_helper")
@@ -153,7 +158,49 @@ class Stats(commands.Cog):
             logger.info("Sent message stats charts and last updated info.")
         except Exception as e:
             logger.error(f"Failed to send message stats charts: {e}")
+    
+
+    @app_commands.command(name="weekly_session_popularity", description="Line chart showing the trends in room registrations for the current academic year.")
+    @has_allowed_role_and_channel()
+    async def weekly_session_popularity(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
+
+        df_sessions = pd.read_csv('data/all_bookings.csv')
+
+        today = datetime.now(SGT).date()
+        current_ay = today.year if today.month >= 4 else today.year - 1
+        df_sessions = df_sessions[df_sessions['AY'] == current_ay]
+
+        df_sessions['date'] = pd.to_datetime(df_sessions['date'])
+        grouped = df_sessions.groupby(['date', 'room']).size().reset_index(name='registrants')
+        pivot_df = grouped.pivot(index='date', columns='room', values='registrants').fillna(0)
+
+        # Create line chart
+        fig = go.Figure()
+
+        for room in pivot_df.columns:
+            fig.add_trace(go.Scatter(
+                x=pivot_df.index,
+                y=pivot_df[room],
+                mode='lines+markers',
+                name=str(room)
+            ))
+
+        fig.update_layout(
+            title=f"Trends in Room Registrations for AY{current_ay}",
+            xaxis_title="Date",
+            yaxis_title="Number of Registrants",
+            plot_bgcolor='white',
+            title_x=0.5
+        )
+
+        buf = BytesIO()
+        fig.write_image(buf, format="png")
+        buf.seek(0)
+
+        await interaction.response.send_message(file=discord.File(buf, "weekly_session_trend.png"))
 
 
-async def setup(bot: commands.bot):
-    await bot.add_cog(Stats(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Stats(bot), guild=Object(id=GUILD_ID))

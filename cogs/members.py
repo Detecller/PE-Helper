@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Object
 from discord.ui import Select, View
 from utils.permissions import has_allowed_role_and_channel
 from utils.variables import SGT
@@ -13,6 +13,8 @@ from utils.setup_logger import log_slash_command
 import logging
 
 
+GUILD_ID = int(os.getenv("GUILD_ID"))
+
 # Get logger
 logger = logging.getLogger("pe_helper")
 
@@ -20,6 +22,7 @@ logger = logging.getLogger("pe_helper")
 class Members(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
 
     @app_commands.command(name="list_current_exco", description="Lists names of those in the current EXCO.")
     @has_allowed_role_and_channel()
@@ -77,7 +80,7 @@ class Members(commands.Cog):
             return
 
         df = pd.DataFrame(rows)
-        fname = "members_details.xlsx"
+        fname = "data/members_details.xlsx"
         df.to_excel(fname, index=False)
 
         # Load the workbook and convert the sheet to a table
@@ -146,5 +149,41 @@ class Members(commands.Cog):
         await interaction.response.send_message("Please select a group:", view=view, ephemeral=True)
 
 
-async def setup(bot: commands.bot):
-    await bot.add_cog(Members(bot))
+    @app_commands.command(name="weekly_session_nominal_rolls", description="Exports nominal rolls of all weekly sessions to Excel.")
+    @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
+    async def weekly_session_nominal_rolls(self, interaction: discord.Interaction):
+
+        log_slash_command(logger, interaction)
+
+        df = pd.read_csv('data/all_bookings.csv')
+        fname = 'data/all_bookings.xlsx'
+        df.to_excel(fname, index=False)
+
+        # Load the workbook and convert the sheet to a table
+        wb = load_workbook(fname)
+        ws = wb.active
+
+        # Define the table range and name
+        tab_ref = f"A1:{get_column_letter(len(df.columns))}{len(df)+1}"
+        tbl = Table(displayName="NominalRollsTable", ref=tab_ref)
+
+        # Add style to the table
+        style = TableStyleInfo(name="TableStyleLight18", showRowStripes=True)
+        tbl.tableStyleInfo = style
+        ws.add_table(tbl)
+
+        # Auto-adjust column widths
+        for col in ws.columns:
+            max_len = max(len(str(c.value)) for c in col)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
+
+        wb.save(fname)
+        logger.info("Excel table formatting complete.")
+
+        await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
+        os.remove(fname)
+        logger.info("Temporary Excel file removed.")
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Members(bot), guild=Object(id=GUILD_ID))
