@@ -1,9 +1,10 @@
 import discord
+import cogs.scoresearcher as scoresearcher
 from discord.ext import commands
 from dotenv import load_dotenv
 import os
 import asyncio
-
+import aiosqlite
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -24,7 +25,8 @@ async def on_ready():
     if guild:
         await bot.tree.sync(guild=guild)
         print(f"Slash commands synced to: {guild.name}")
-
+    con = await aiosqlite.connect("PEHelper.db")
+    scoresearcher.con = con
 
 async def main():
     await bot.load_extension("cogs")
