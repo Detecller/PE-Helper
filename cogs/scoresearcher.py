@@ -41,13 +41,14 @@ class ScoreSearcher(commands.Cog):
     @has_allowed_role_and_channel()
     @app_commands.autocomplete(composer=classical_composers_autocomplete)
     async def search_piece(self, interaction: discord.Interaction, piece: str, composer: str):
+        await interaction.response.defer()
         update_composers(composer)
         search_term = f"{piece} - {composer}"
         results = search_scores(search_term)
         scores = results['imslp_scores']
         formatted_scores = [f"[{i['name']}]({i['link']})\nScore: {i['points']}" for i in scores]
         embed = discord.Embed(title=f"Results from ({results['title']})\n{results['link']}", description='\n'.join(formatted_scores))
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 async def setup(bot: commands.bot):
     await bot.add_cog(ScoreSearcher(bot))

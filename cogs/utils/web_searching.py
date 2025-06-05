@@ -4,7 +4,7 @@ from selenium.webdriver.common.by import By
 import os
 
 google_key = os.getenv('GOOGLE_API')
-cse_id = os.getenv('CSE_ID')
+cse_id =  os.getenv('CSE_ID')
 
 def google_search(search_term, api_key, cse_id, **kwargs):
     limit=5
