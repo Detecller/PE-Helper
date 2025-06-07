@@ -3,6 +3,7 @@ from discord.ext import commands, tasks
 from utils.variables import SGT, last_update
 import pandas as pd
 from datetime import datetime
+from datetime import timedelta
 import re
 import os
 import csv
@@ -11,8 +12,10 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
-import time
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import logging
+import functools
 
 
 # Get logger
@@ -22,15 +25,14 @@ logger = logging.getLogger("pe_helper")
 class BackgroundTasks(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.count_messages_task = None
         self.collect_links_task = None
 
 
     @commands.Cog.listener()
     async def on_ready(self):
         logger.info("Starting background tasks.")
-        if self.count_messages_task is None or not self.count_messages_task.is_running():
-            self.count_messages_task = self.count_messages.start()
+        if not self.count_messages.is_running():
+            self.count_messages.start()
         else:
             logger.info("count_messages task already running.")
         
@@ -56,7 +58,7 @@ class BackgroundTasks(commands.Cog):
 
             # If it's already past 5 PM, schedule for 5 PM tomorrow
             if now >= target_time:
-                target_time += datetime.timedelta(days=1)
+                target_time += timedelta(days=1)
 
             wait_seconds = (target_time - now).total_seconds()
             logger.info(f"collect_links_time sleeping for {wait_seconds:.2f} seconds until next 5 PM SGT.")
@@ -104,8 +106,8 @@ class BackgroundTasks(commands.Cog):
                 for n in message_counts
             ])
             
-            df.sort_values("Message Count", ascending=False).head(10).to_csv("data/top_messages.csv", index=False)
-            df.sort_values("Word Count", ascending=False).head(10).to_csv("data/top_words.csv", index=False)
+            df.sort_values("Message Count", ascending=False).head(10).drop('Word Count', axis=1).to_csv("data/top_messages.csv", index=False)
+            df.sort_values("Word Count", ascending=False).head(10).drop('Message Count', axis=1).to_csv("data/top_words.csv", index=False)
             with open("data/channels.txt", "w", encoding="utf-8") as f:
                 f.write("\n".join(scanned))
 
@@ -171,24 +173,22 @@ class BackgroundTasks(commands.Cog):
         else:
             logger.info("No new links found to add.")
 
-    
+
+    async def scrape_link(self, driver, link: str, df_existing: pd.DataFrame, df_links: pd.DataFrame):
+        loop = asyncio.get_running_loop()
+        partial_func = functools.partial(self.scrape_link_sync, driver, link, df_existing, df_links)
+        return await loop.run_in_executor(None, partial_func)
+
 
     # Function to scrape details from SignUpGenius
-    async def scrape_link(self, link: str, df_existing: pd.DataFrame, df_links: pd.DataFrame):
+    def scrape_link_sync(self, driver, link: str, df_existing: pd.DataFrame, df_links: pd.DataFrame):
         logger.info(f"Scraping link: {link}")
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        try:
-            driver = webdriver.Chrome(options=chrome_options)
-        except WebDriverException as e:
-            logger.error(f"Failed to start Chrome WebDriver: {e}", exc_info=True)
-            return df_existing, df_links
 
         # Navigate to the page
         driver.get(link)
-        time.sleep(3)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "signupcontainer"))
+        )
         
         scrapable = True
         try:
@@ -216,19 +216,20 @@ class BackgroundTasks(commands.Cog):
 
         if scrapable == False:
             df_links.loc[df_links["url"] == link, "state"] = 0  # Indicate link is unscrapable
+            logger.warning('Link cannot be scrapped.')
             return df_existing, df_links
 
         bookings = []
         i = 1
+        def find_with_fallback(driver, xpath_variants):
+            for xpath in xpath_variants:
+                try:
+                    return driver.find_element(By.XPATH, xpath)
+                except NoSuchElementException:
+                    continue
+            raise NoSuchElementException(f"None of the XPaths matched: {xpath_variants}")
         while True:
             try:
-                def find_with_fallback(driver, xpath_variants):
-                    for xpath in xpath_variants:
-                        try:
-                            return driver.find_element(By.XPATH, xpath)
-                        except NoSuchElementException:
-                            continue
-                    raise NoSuchElementException(f"None of the XPaths matched: {xpath_variants}")
                 time_slot_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[1]/div[2]/div[1]/div[1]/div[1]/span'
                 time_slot_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[1]/div[2]/div[1]/div[1]/div[1]/span'
                 time_slot = find_with_fallback(driver, [time_slot_xpath_3, time_slot_xpath_4]).text
@@ -245,7 +246,10 @@ class BackgroundTasks(commands.Cog):
                         admin_num_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
                         admin_num_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
                         name = find_with_fallback(driver, [name_xpath_3, name_xpath_4]).text
-                        admin_num = find_with_fallback(driver, [admin_num_xpath_3, admin_num_xpath_4]).get_attribute("textContent")
+                        try:
+                            admin_num = find_with_fallback(driver, [admin_num_xpath_3, admin_num_xpath_4]).get_attribute("textContent")
+                        except NoSuchElementException:
+                            admin_num = ""
 
                         df_links.loc[df_links["url"] == link, "scanned"] = 1  # Flag that link has been scrapped successfully
                         if today > date:
@@ -291,8 +295,23 @@ class BackgroundTasks(commands.Cog):
         df_existing = pd.read_csv(df_path) if os.path.exists(df_path) else pd.DataFrame(columns=["date", "room", "time_slot", "name", "admin_num"])
         df_existing["date"] = pd.to_datetime(df_existing["date"]).dt.date
 
-        for url in links_to_scan:
-            df_existing, df_links = await self.scrape_link(url, df_existing, df_links)
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=chrome_options)
+            logger.info('Chrome WebDriver started successfully in headless mode.')
+
+            for url in links_to_scan:
+                df_existing, df_links = await self.scrape_link(driver, url, df_existing, df_links)
+                
+        except WebDriverException as e:
+            logger.error(f"Failed to start Chrome WebDriver: {e}", exc_info=True)
+            return df_existing, df_links
+        
+        driver.quit()
+            
 
         # Get academic year for each date
         def get_academic_year(date):

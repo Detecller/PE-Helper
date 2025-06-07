@@ -28,6 +28,8 @@ class Members(commands.Cog):
     @has_allowed_role_and_channel()
     async def list_current_exco(self, interaction: discord.Interaction):
 
+        await interaction.response.defer()
+
         log_slash_command(logger, interaction)
 
         guild = interaction.guild
@@ -40,12 +42,14 @@ class Members(commands.Cog):
         
         logger.info(f"Found {len(exco)} EXCO members.")
         text = "**Names of Current EXCO Members:**\n" + "\n".join(f"- {n}" for n in exco)
-        await interaction.response.send_message(text)
+        await interaction.followup.send(text)
 
     
     @app_commands.command(name="members_details", description="Exports member & alumni details to Excel.")
     @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
     async def members_details(self, interaction: discord.Interaction):
+
+        await interaction.response.defer()
 
         log_slash_command(logger, interaction)
         
@@ -104,7 +108,7 @@ class Members(commands.Cog):
         wb.save(fname)
         logger.info("Excel table formatting complete.")
 
-        await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
+        await interaction.followup.send("Here is the Excel export:", file=discord.File(fname))
         os.remove(fname)
         logger.info("Temporary Excel file removed.")
 
@@ -112,6 +116,8 @@ class Members(commands.Cog):
     @app_commands.command(name="list_piano_group_members", description="Select a piano group and list its members (excl. alumni).")
     @has_allowed_role_and_channel()
     async def list_piano_group_members(self, interaction: discord.Interaction):
+
+        await interaction.response.defer()
 
         log_slash_command(logger, interaction)
 
@@ -146,12 +152,14 @@ class Members(commands.Cog):
         view.add_item(Dropdown())
         
         logger.info("Dropdown sent for piano group selection.")
-        await interaction.response.send_message("Please select a group:", view=view, ephemeral=True)
+        await interaction.followup.send("Please select a group:", view=view, ephemeral=True)
 
 
     @app_commands.command(name="weekly_session_nominal_rolls", description="Exports nominal rolls of all weekly sessions to Excel.")
     @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
     async def weekly_session_nominal_rolls(self, interaction: discord.Interaction):
+
+        await interaction.response.defer()
 
         log_slash_command(logger, interaction)
 
@@ -180,7 +188,7 @@ class Members(commands.Cog):
         wb.save(fname)
         logger.info("Excel table formatting complete.")
 
-        await interaction.response.send_message("Here is the Excel export:", file=discord.File(fname))
+        await interaction.followup.send("Here is the Excel export:", file=discord.File(fname))
         os.remove(fname)
         logger.info("Temporary Excel file removed.")
 

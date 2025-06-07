@@ -28,6 +28,8 @@ class Stats(commands.Cog):
     @has_allowed_role_and_channel()
     async def piano_groups(self, interaction: discord.Interaction):
 
+        await interaction.response.defer()
+
         log_slash_command(logger, interaction)
 
         guild = interaction.guild
@@ -78,7 +80,7 @@ class Stats(commands.Cog):
         buf.seek(0)
 
         try:
-            await interaction.response.send_message(file=discord.File(buf, "piano_groups.png"))
+            await interaction.followup.send(file=discord.File(buf, "piano_groups.png"))
             logger.info("Piano groups pie chart sent successfully.")
         except Exception as e:
             logger.error(f"Failed to send piano groups pie chart: {e}")
@@ -87,6 +89,8 @@ class Stats(commands.Cog):
     @app_commands.command(name="message_stats", description="Bar charts of total messages & word counts by user.")
     @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
     async def message_stats(self, interaction: discord.Interaction):
+
+        await interaction.response.defer()
 
         log_slash_command(logger, interaction)
 
@@ -151,7 +155,7 @@ class Stats(commands.Cog):
         # Send channel list header and the images
         header = "**Scanned Channels:**\n" + "\n".join(f"- {c}" for c in channels)
         try:
-            await interaction.response.send_message(header)
+            await interaction.followup.send(header)
             await interaction.followup.send(file=discord.File(buf1, "message_count.png"))
             await interaction.followup.send(file=discord.File(buf2, "word_count.png"))
             await interaction.followup.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
@@ -163,6 +167,8 @@ class Stats(commands.Cog):
     @app_commands.command(name="weekly_session_popularity", description="Line chart showing the trends in room registrations for the current academic year.")
     @has_allowed_role_and_channel()
     async def weekly_session_popularity(self, interaction: discord.Interaction):
+
+        await interaction.response.defer()
 
         log_slash_command(logger, interaction)
 
@@ -219,7 +225,7 @@ class Stats(commands.Cog):
         fig.write_image(buf, format="png")
         buf.seek(0)
 
-        await interaction.response.send_message(file=discord.File(buf, "weekly_session_trend.png"))
+        await interaction.followup.send(file=discord.File(buf, "weekly_session_trend.png"))
 
 
 async def setup(bot: commands.Bot):
