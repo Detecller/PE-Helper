@@ -1,14 +1,18 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Object
 from utils.permissions import has_allowed_role_and_channel
 import pandas as pd
 from utils.web_searching import search_scores
+import os
+
+
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 composers = ["Chopin", "J.S Bach", "Beethoven", "Mozart", "Liszt", "Rachmaninoff", "Debussy", "R.Schumann", "C.Schumann",
              "Schubert", "Tchaikovsky", "Czerny", "Haydn", "Mendelssohn", "Moszkowski", "Ravel", "Erik Satie", "Scarlatti"]
 
-file_path = r"C:\Users\yanya\PycharmProjects\PE-Helper\cogs\composers.csv"
+file_path = "data/composers.csv"
 
 
 try:
@@ -33,6 +37,7 @@ async def classical_composers_autocomplete(interaction: discord.Interaction, cur
         return [i for i in valid_composers if current.lower() in i.lower()]
     return [i for i in valid_composers]
 
+
 class ScoreSearcher(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -50,5 +55,6 @@ class ScoreSearcher(commands.Cog):
         embed = discord.Embed(title=f"Results from ({results['title']})\n{results['link']}", description='\n'.join(formatted_scores))
         await interaction.followup.send(embed=embed)
 
-async def setup(bot: commands.bot):
-    await bot.add_cog(ScoreSearcher(bot))
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ScoreSearcher(bot), guild=Object(id=GUILD_ID))

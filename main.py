@@ -5,7 +5,6 @@ import os
 import asyncio
 import logging
 from utils.setup_logger import setup_logging
-
 import aiosqlite
 
 load_dotenv()
@@ -52,8 +51,6 @@ async def on_ready():
             logger.info("Syncing commands...")
             synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
             logger.info(f"Synced {len(synced)} guild commands: {[cmd.name for cmd in synced]}")
-            con = await aiosqlite.connect("PEHelper.db")
-            scoresearcher.con = con
             
         except Exception as e:
             logger.error(f"Error in on_ready: {e}")

@@ -3,14 +3,17 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 import os
 
+
 google_key = os.getenv('GOOGLE_API')
 cse_id =  os.getenv('CSE_ID')
+
 
 def google_search(search_term, api_key, cse_id, **kwargs):
     limit=5
     service = build("customsearch", "v1", developerKey=api_key)
     result = service.cse().list(q=search_term, cx=cse_id, num=limit, **kwargs).execute()
     return result['items']
+
 
 def search_imslp_scores(link):
     driver = webdriver.Chrome()
@@ -46,6 +49,3 @@ def search_scores(search_term: str):
     link = main_page['link']
     imslp_scores = search_imslp_scores(link)
     return {'title': title, 'link': link, 'imslp_scores': imslp_scores}
-
-
-
