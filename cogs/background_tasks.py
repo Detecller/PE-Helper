@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from utils.variables import SGT, last_update
+from utils.variables import SGT, PT, last_update
 import pandas as pd
 from datetime import datetime
 from datetime import timedelta
@@ -16,6 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import logging
 import functools
+import time
 
 
 # Get logger
@@ -41,6 +42,30 @@ class BackgroundTasks(commands.Cog):
             self.collect_links_task = self.bot.loop.create_task(self.collect_links_time())
         else:
             logger.info("collect_links_time loop already running.")
+
+        if not self.reset_api_count.is_running():
+            logger.info("Starting reset_api_count loop.")
+            self.reset_api_count.start()
+        else:
+            logger.info("reset_api_count loop already running.")
+    
+    
+    @tasks.loop(hours=24)
+    async def reset_api_count(self):
+        logger.info("Running auto_reset_links task.")
+        try:
+            now = datetime.now(PT)
+            if now.hour == 0 and 0 <= now.minute <= 5:
+                csv_path = "data/api_count.csv"
+                if os.path.exists(csv_path):
+                    api_count = pd.read_csv(csv_path)
+                    api_count.loc[api_count['api_name'] == 'google-custom-search-api', 'count'] = 0
+                    api_count.to_csv(csv_path, index=False)
+                    logger.info("API counts have been reset.")
+                else:
+                    logger.warning("api_count.csv not found during auto-reset.")
+        except Exception as e:
+            logger.error(f"Error during reset_api_count: {e}", exc_info=True)
 
 
     async def collect_links_time(self):
@@ -228,6 +253,7 @@ class BackgroundTasks(commands.Cog):
                 except NoSuchElementException:
                     continue
             raise NoSuchElementException(f"None of the XPaths matched: {xpath_variants}")
+        
         while True:
             try:
                 time_slot_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[1]/div[2]/div[1]/div[1]/div[1]/span'
@@ -238,33 +264,70 @@ class BackgroundTasks(commands.Cog):
                 time_slot = re.sub(r"(\d{2})(\d{2})", r"\1 \2", time_slot)
                 time_slot = re.sub(r"\s*-\s*", " - ", time_slot)
 
-                x = 1
-                while x:
-                    try:
-                        name_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/p/span'
-                        name_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/p/span'
-                        admin_num_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
-                        admin_num_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
-                        name = find_with_fallback(driver, [name_xpath_3, name_xpath_4]).text
-                        try:
-                            admin_num = find_with_fallback(driver, [admin_num_xpath_3, admin_num_xpath_4]).get_attribute("textContent")
-                        except NoSuchElementException:
-                            admin_num = ""
+                details_found = True
+                try:
+                    details = '//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr/td/div/div[2]/div/participant-summary/div/div[11]/a'
+                    details_elem = driver.find_element(By.XPATH, details)
+                except NoSuchElementException:
+                    details_found = False
+                else:
+                    details_elem = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.XPATH, details))
+                    )
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", details_elem)
+                    time.sleep(0.5)
+                    details_elem.click()
+                    show_50 = "/html/body/div[13]/div/div/div/div/div[2]/div[5]/div/items-per-page/ul/li[4]"
+                    WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.XPATH, show_50))
+                    )
+                    show_50_elem = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.XPATH, show_50))
+                    )
+                    show_50_elem = driver.find_element(By.XPATH, show_50)
+                    show_50_elem.click()
 
-                        df_links.loc[df_links["url"] == link, "scanned"] = 1  # Flag that link has been scrapped successfully
-                        if today > date:
-                            df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
-                        else:
-                            df_links.loc[df_links["url"] == link, "state"] = 1  # Indicate weekly session has not passed
-                        bookings.append({
-                            "date": date,
-                            "room": room,
-                            "time_slot": time_slot,
-                            "name": name,
-                            "admin_num": admin_num
-                        })
+                x = 1
+                while True:
+                    try:
+                        if details_found == False:  # If the details do not exist, use the default scraping method
+                            name_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/p/span'
+                            name_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/p/span'
+                            admin_num_xpath_3 = f'//*[@id="signupcontainer"]/div[3]/div/div[3]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
+                            admin_num_xpath_4 = f'//*[@id="signupcontainer"]/div[3]/div/div[4]/div/table/tbody/tr/td[4]/ng-include/table/tbody/tr[{i}]/td/div/div[2]/div/participant-summary/div/div[{x}]/div/div/span[3]/span[1]'
+                            name = find_with_fallback(driver, [name_xpath_3, name_xpath_4]).text
+                            try:
+                                admin_num = find_with_fallback(driver, [admin_num_xpath_3, admin_num_xpath_4]).get_attribute("textContent")
+                            except NoSuchElementException:
+                                admin_num = ""
+
+                        else:  # If the details exist, use it to scrape
+                            first_name_xpath = f'/html/body/div[13]/div/div/div/div/div[2]/div[4]/div/table/tbody/tr[{x}]/td[1]'
+                            last_name_xpath = f'/html/body/div[13]/div/div/div/div/div[2]/div[4]/div/table/tbody/tr[{x}]/td[2]'
+                            admin_num_xpath = f'/html/body/div[13]/div/div/div/div/div[2]/div[4]/div/table/tbody/tr[{x}]/td[4]/span[1]'
+
+                            first_name = driver.find_element(By.XPATH, first_name_xpath).text
+                            last_name = driver.find_element(By.XPATH, last_name_xpath).text
+                            name = first_name + ' ' + last_name
+                            try:
+                                admin_num = driver.find_element(By.XPATH, admin_num_xpath).text
+                            except NoSuchElementException:
+                                admin_num = ""
                     except NoSuchElementException:
                         break
+
+                    df_links.loc[df_links["url"] == link, "scanned"] = 1  # Flag that link has been scrapped successfully
+                    if today > date:
+                        df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
+                    else:
+                        df_links.loc[df_links["url"] == link, "state"] = 1  # Indicate weekly session has not passed
+                    bookings.append({
+                        "date": date,
+                        "room": room,
+                        "time_slot": time_slot,
+                        "name": name,
+                        "admin_num": admin_num
+                    })
                     x += 1
 
             except NoSuchElementException:
@@ -272,7 +335,7 @@ class BackgroundTasks(commands.Cog):
             i += 1
 
         df_new = pd.DataFrame(bookings)
-        df_existing = pd.concat([df_existing, df_new], ignore_index=True)
+        df_existing = pd.concat([df_new, df_existing], ignore_index=True)
         logger.info(f"Scraping complete for link: {link}")
         return df_existing, df_links
 

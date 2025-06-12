@@ -19,7 +19,7 @@ intents.message_content = True
 
 class MyBot(commands.Bot):
     async def setup_hook(self):
-        extensions = ["cogs.members", "cogs.stats", "cogs.background_tasks"]
+        extensions = ["cogs.members", "cogs.stats", "cogs.background_tasks", "cogs.score_searcher"]
         
         for extension in extensions:
             try:
