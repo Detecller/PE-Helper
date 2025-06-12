@@ -2,10 +2,9 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 import os
-import asyncio
 import logging
 from utils.setup_logger import setup_logging
-import aiosqlite
+
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
