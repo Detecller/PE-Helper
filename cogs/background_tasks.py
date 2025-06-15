@@ -17,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import logging
 import functools
 import time
+import utils.audio_essentials as audio_essentials
 
 
 # Get logger
@@ -394,6 +395,17 @@ class BackgroundTasks(commands.Cog):
         except Exception as e:
             logger.error(f"Failed to save scraped data CSV files: {e}", exc_info=True)
 
+    @tasks.loop(seconds=5)
+    async def loop_files():
+        instance = [i for i in Buttons.VoteSkip.instances if i['id'] == currently_playing['id']]
+        if instance:
+            instance = instance[0]
+            VoteInstance = instance['instance']
+            if len(VoteInstance.voted_skip) > len(VoteInstance.currently_playing['members']) / 2:
+                voice_client = client.get_guild(set_guild).voice_client
+                voice_client.stop()
+                audio.cleanup()
+        refresh_song()
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BackgroundTasks(bot))
