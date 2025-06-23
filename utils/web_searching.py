@@ -3,25 +3,35 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 import os
-import pandas as pd
 import logging
+from googleapiclient.errors import HttpError
+import discord
+import asyncio
 
 
 google_key = os.getenv('GOOGLE_API')
 cse_id =  os.getenv('CSE_ID')
 logger = logging.getLogger("pe_helper")
 
-def google_search(search_term, api_key, cse_id, **kwargs):
-    limit=5
+def google_search(search_term, api_key, cse_id, interaction, **kwargs):
+    limit = 5
     logger.info(f"Calling Google API with search term: '{search_term}'")
-    service = build("customsearch", "v1", developerKey=api_key)
-    result = service.cse().list(q=search_term, cx=cse_id, num=limit, **kwargs).execute()
-    file_path = 'data/api_count.csv'
-    api_count = pd.read_csv(file_path)
-    api_count.loc[api_count['api_name'] == 'google-custom-search-api', 'count'] += 1
-    api_count.to_csv(file_path, index=False)
-    logger.info("Google API count incremented and saved.")
-    return result['items']
+
+    try:
+        service = build("customsearch", "v1", developerKey=api_key)
+        result = service.cse().list(q=search_term, cx=cse_id, num=limit, **kwargs).execute()
+
+        return result['items']
+
+    except HttpError as e:
+        if e.resp.status == 403:
+            logger.warning(f"Google API quota exceeded: {e}")
+            # Respond directly in the command
+            asyncio.create_task(interaction.followup.send("❌ Limit reached. Please try again tomorrow.", ephemeral=True))
+        else:
+            logger.error(f"Google API error: {e}", exc_info=True)
+            asyncio.create_task(interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True))
+        return None
 
 
 def search_imslp_scores(link):
@@ -58,8 +68,8 @@ def search_imslp_scores(link):
     return links
 
 
-def search_scores(search_term: str):
-    searches = google_search(search_term, google_key, cse_id)
+def search_scores(search_term: str, interaction: discord.Interaction):
+    searches = google_search(search_term, google_key, cse_id, interaction)
     main_page = searches[0]
     title = main_page['title']
     link = main_page['link']

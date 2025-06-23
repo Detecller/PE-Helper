@@ -4,6 +4,7 @@ from discord import app_commands, Object
 from utils.permissions import has_allowed_role_and_channel
 import pandas as pd
 from utils.web_searching import search_scores
+from utils.setup_logger import log_slash_command
 import os
 import logging
 
@@ -47,24 +48,22 @@ class ScoreSearcher(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="search_piece", description="Search for classical pieces!")
-    @has_allowed_role_and_channel()
+    score_searcher_group = app_commands.Group(name="score-searcher", description="Score-searching commands")
+
+
+    @score_searcher_group.command(name="search-piece", description="Search for classical pieces!")
+    @has_allowed_role_and_channel(allowed_channels=['📖┃music-sheets', '🚧┃test-commands'])
     @app_commands.autocomplete(composer=classical_composers_autocomplete)
     async def search_piece(self, interaction: discord.Interaction, piece: str, composer: str):
 
         await interaction.response.defer()
 
+        log_slash_command(logger, interaction)
+
         try:
-            api_count = pd.read_csv('data/api_count.csv')
-            current_count = api_count.loc[api_count['api_name'] == 'google-custom-search-api', 'count'].values[0]
-            logger.info(f"Current Google API count: {current_count}")
-            if api_count.loc[api_count['api_name'] == 'google-custom-search-api', 'count'].values[0] == 100:
-                logger.warning("API limit reached. Blocking search.")
-                await interaction.followup.send("❌ Limit reached! Please try again tomorrow.", ephemeral=True)
-                return
             update_composers(composer)
             search_term = f"{piece} - {composer}"
-            results = search_scores(search_term)
+            results = search_scores(search_term, interaction)
             scores = results['imslp_scores']
             formatted_scores = [f"[{i['name']}]({i['link']})\nNumber of Downloads: {i['points']}\n" for i in scores]
             embed = discord.Embed(

@@ -18,7 +18,11 @@ import logging
 import functools
 import time
 import utils.audio_essentials as audio_essentials
+import cogs.music_bot as music_bot
+from utils.variables import currently_playing, audio
 
+
+GUILD_ID = int(os.getenv("GUILD_ID"))
 
 # Get logger
 logger = logging.getLogger("pe_helper")
@@ -28,6 +32,7 @@ class BackgroundTasks(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.collect_links_task = None
+        self.reset_api_count_task = None
 
 
     @commands.Cog.listener()
@@ -44,29 +49,35 @@ class BackgroundTasks(commands.Cog):
         else:
             logger.info("collect_links_time loop already running.")
 
-        if not self.reset_api_count.is_running():
+        if self.reset_api_count_task is None:
             logger.info("Starting reset_api_count loop.")
-            self.reset_api_count.start()
+            self.reset_api_count = self.bot.loop.create_task(self.reset_api_count())
         else:
             logger.info("reset_api_count loop already running.")
     
     
-    @tasks.loop(hours=24)
     async def reset_api_count(self):
-        logger.info("Running auto_reset_links task.")
-        try:
+        while True:
             now = datetime.now(PT)
-            if now.hour == 0 and 0 <= now.minute <= 5:
+            # Calculate next midnight in PT
+            tomorrow = now + timedelta(days=1)
+            next_midnight = PT.localize(datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 0))
+            delta = (next_midnight - now).total_seconds()
+
+            logger.info(f"Sleeping {delta:.2f} seconds until midnight reset.")
+            await asyncio.sleep(delta)
+
+            try:
                 csv_path = "data/api_count.csv"
                 if os.path.exists(csv_path):
                     api_count = pd.read_csv(csv_path)
                     api_count.loc[api_count['api_name'] == 'google-custom-search-api', 'count'] = 0
                     api_count.to_csv(csv_path, index=False)
-                    logger.info("API counts have been reset.")
+                    logger.info("API counts reset successfully.")
                 else:
-                    logger.warning("api_count.csv not found during auto-reset.")
-        except Exception as e:
-            logger.error(f"Error during reset_api_count: {e}", exc_info=True)
+                    logger.warning("api_count.csv not found during reset.")
+            except Exception as e:
+                logger.error(f"Error during API reset: {e}", exc_info=True)
 
 
     async def collect_links_time(self):
@@ -99,7 +110,7 @@ class BackgroundTasks(commands.Cog):
     async def count_messages(self):
         logger.info("Starting count_messages task.")
 
-        guild = discord.utils.get(self.bot.guilds, name="NYP Piano Ensemble")
+        guild = self.bot.get_guild(GUILD_ID)
         message_counts: dict[str, int] = {}
         word_counts: dict[str, int] = {}
         target_roles = ['Member', 'Alumni']
@@ -145,7 +156,7 @@ class BackgroundTasks(commands.Cog):
     
 
     async def collect_links(self):
-        guild = discord.utils.get(self.bot.guilds, name="NYP Piano Ensemble")
+        guild = self.bot.get_guild(GUILD_ID)
         target_channel = discord.utils.get(guild.text_channels, name="🎹┃weekly-sessions")
 
         # Check if weekly session channel exists
@@ -395,17 +406,19 @@ class BackgroundTasks(commands.Cog):
         except Exception as e:
             logger.error(f"Failed to save scraped data CSV files: {e}", exc_info=True)
 
+
     @tasks.loop(seconds=5)
-    async def loop_files():
-        instance = [i for i in Buttons.VoteSkip.instances if i['id'] == currently_playing['id']]
+    async def loop_files(self):
+        instance = [i for i in music_bot.VoteSkip.instances if i['id'] == currently_playing['id']]
         if instance:
             instance = instance[0]
             VoteInstance = instance['instance']
             if len(VoteInstance.voted_skip) > len(VoteInstance.currently_playing['members']) / 2:
-                voice_client = client.get_guild(set_guild).voice_client
+                voice_client = self.bot.get_guild(GUILD_ID).voice_client
                 voice_client.stop()
                 audio.cleanup()
-        refresh_song()
+        audio_essentials.refresh_song()
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BackgroundTasks(bot))

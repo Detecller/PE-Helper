@@ -23,9 +23,11 @@ class Stats(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    stats_group = app_commands.Group(name="stats", description="Statistical commands")
 
-    @app_commands.command(name="piano_groups", description="Pie chart of piano-playing groups of current members.")
-    @has_allowed_role_and_channel()
+
+    @stats_group.command(name="piano-groups", description="Pie chart of piano-playing groups of current members.")
+    @has_allowed_role_and_channel(allowed_channels=['💬┃general-commands', '🚧┃test-commands'])
     async def piano_groups(self, interaction: discord.Interaction):
 
         await interaction.response.defer()
@@ -86,8 +88,8 @@ class Stats(commands.Cog):
             logger.error(f"Failed to send piano groups pie chart: {e}")
 
 
-    @app_commands.command(name="message_stats", description="Bar charts of total messages & word counts by user.")
-    @has_allowed_role_and_channel(forbidden_roles=['Member','Alumni'], forbidden_channels=['💬┃general'])
+    @stats_group.command(name="message-stats", description="Bar charts of total messages & word counts by user.")
+    @has_allowed_role_and_channel(allowed_channels=['💬┃general-commands', '🚧┃test-commands'])
     async def message_stats(self, interaction: discord.Interaction):
 
         await interaction.response.defer()
@@ -164,8 +166,8 @@ class Stats(commands.Cog):
             logger.error(f"Failed to send message stats charts: {e}")
     
 
-    @app_commands.command(name="weekly_session_popularity", description="Line chart showing the trends in room registrations for the current academic year.")
-    @has_allowed_role_and_channel()
+    @stats_group.command(name="weekly-session-popularity", description="Line chart showing the trends in room registrations for the current academic year.")
+    @has_allowed_role_and_channel(allowed_channels=['💬┃general-commands', '🚧┃test-commands'])
     async def weekly_session_popularity(self, interaction: discord.Interaction):
 
         await interaction.response.defer()
@@ -196,7 +198,7 @@ class Stats(commands.Cog):
                 y=pivot_df[room],
                 mode='lines+markers',
                 name=str(room),
-                line=dict(color=label_colors.get(room))  # fallback to black if undefined
+                line=dict(color=label_colors.get(room))
             ))
 
         fig.update_layout(

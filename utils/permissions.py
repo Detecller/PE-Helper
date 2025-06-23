@@ -6,28 +6,36 @@ import logging
 logger = logging.getLogger("pe_helper")
 
 
-def has_allowed_role_and_channel(forbidden_roles: list[str] = None, forbidden_channels: list[str] = None):
-    default_allowed_roles = {'Admin', 'Current EXCO', 'Member', 'Alumni'}
-    default_allowed_channels = {'🛠┃admin-discussions', '🧠┃exco-discussions', '💬┃general', '🤖┃bot-dev'}
+def has_allowed_role_and_channel(allowed_roles: list[str] = None, allowed_channels: list[str] = None):
 
-    forbidden_roles = forbidden_roles or []
-    forbidden_channels = forbidden_channels or []
+    # Set default allowed roles & channels
+    default_roles = {'Admin', 'Current EXCO', 'Member', 'Alumni'}
+    default_channels = {
+        '💬┃general-commands',
+        '📖┃music-sheets',
+        '👑┃exco-exclusive',
+        '⚙️┃admin-related',
+        '🎶┃music-radio-tools',
+        '🚧┃test-commands'
+    }
+
+    allowed_roles = set(allowed_roles) if allowed_roles is not None else default_roles
+    allowed_channels = set(allowed_channels) if allowed_channels is not None else default_channels
 
     async def predicate(interaction):
-        allowed_roles = default_allowed_roles - set(forbidden_roles)
-        allowed_channels = default_allowed_channels - set(forbidden_channels)
-
-        user_roles = {r.name for r in interaction.user.roles}
+        user_roles = {role.name for role in interaction.user.roles}
         channel_name = interaction.channel.name if interaction.channel else None
 
+        # Role whitelist check
         if not (user_roles & allowed_roles):
-            logger.warning(f"User {interaction.user} ({interaction.user.id}) blocked by role check. Roles: {user_roles}, Allowed roles: {allowed_roles}")
-            await interaction.response.send_message("❌ You don't have the permitted role.", ephemeral=True)
+            logger.warning(f"User {interaction.user} ({interaction.user.id}) blocked by role whitelist. Roles: {user_roles}, Allowed: {allowed_roles}")
+            await interaction.response.send_message("❌ You don't have the required role to use this command.", ephemeral=True)
             return False
 
+        # Channel whitelist check
         if channel_name not in allowed_channels:
-            logger.warning(f"User {interaction.user} ({interaction.user.id}) blocked by channel check. Channel: {channel_name}, Allowed channels: {allowed_channels}")
-            await interaction.response.send_message("❌ This command can't be used in this channel.", ephemeral=True)
+            logger.warning(f"User {interaction.user} ({interaction.user.id}) blocked by channel whitelist. Channel: {channel_name}, Allowed: {allowed_channels}")
+            await interaction.response.send_message("❌ This command is not allowed in this channel.", ephemeral=True)
             return False
 
         return True
