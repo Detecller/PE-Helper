@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os
 import logging
 from utils.setup_logger import setup_logging
+import traceback
 
 
 load_dotenv()
@@ -37,7 +38,6 @@ class PEHelper(commands.Bot):
 
             except Exception as e:
                 logger.error(f"Failed to load {extension}: {e}")
-                import traceback
                 logger.error(traceback.format_exc())
 
 
@@ -56,6 +56,17 @@ async def on_ready():
     guild = discord.utils.get(bot.guilds, name="NYP Piano Ensemble")
     if guild:
         try:
+            try:
+                audio_folder = "audios"
+                if os.path.exists(audio_folder):
+                    for file in os.listdir(audio_folder):
+                        file_path = os.path.join(audio_folder, file)
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
+                    logger.info("Cleaned up leftover audio files on startup.")
+            except Exception as e:
+                logger.warning(f"Error cleaning up audio files on startup: {e}")
+                
             # Sync commands
             logger.info("Syncing commands...")
             synced = await bot.tree.sync(guild=discord.Object(id=guild.id))
@@ -70,7 +81,6 @@ async def on_ready():
             
         except Exception as e:
             logger.error(f"Error in on_ready: {e}")
-            import traceback
             logger.error(traceback.format_exc())
 
 

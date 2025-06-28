@@ -1,4 +1,5 @@
 from pytubefix import YouTube
+import yt_dlp
 import re
 import os
 from dotenv import load_dotenv
@@ -6,11 +7,17 @@ import googleapiclient.discovery
 import discord
 from utils.variables import currently_playing, audio
 import logging
+import platform
 
 
 load_dotenv()
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
-FFMPEG_PATH = os.getenv('FFMPEG_PATH')
+
+os_type = platform.system()
+if os_type == "Windows":
+    FFMPEG_PATH = os.getenv('FFMPEG_PATH_LOCAL')
+elif os_type == "Linux":
+    FFMPEG_PATH = os.getenv('FFMPEG_PATH_VPS')
 
 logger = logging.getLogger("pe_helper")
 
@@ -33,9 +40,23 @@ def get_audio(url):
     try:
         create_directory("audios")
         logger.info(f"Downloading audio from URL: {url}")
-        video = YouTube(url).streams.filter(only_audio=True).first().download(output_path="audios")
-        logger.info(f"Downloaded audio to: {video}")
-        return video
+
+        ydl_opts = {
+            'user_agent': 'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            'format': 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best',
+            'outtmpl': 'audios/%(title)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            filepath = ydl.prepare_filename(info_dict)
+            base, ext = os.path.splitext(filepath)
+            audio_file = filepath
+            logger.info(f"Downloaded audio to: {audio_file}")
+            return audio_file
+
     except Exception as e:
         logger.error(f"Failed to download audio from {url}: {e}")
         raise
@@ -74,6 +95,7 @@ def check_video_length(VidID):
 def refresh_song(client, set_guild):
     global currently_playing
     global audio
+
     try:
         guild = client.get_guild(set_guild)
         voice_client = guild.voice_client
@@ -84,28 +106,42 @@ def refresh_song(client, set_guild):
             logger.debug("Voice client is already playing")
             return
 
-        if currently_playing:
-            try:
-                os.remove(currently_playing['path'])
-                logger.info(f"Removed previously played file: {currently_playing['path']}")
-            except Exception as e:
-                logger.warning(f"Failed to remove file: {currently_playing['path']} — {e}")
-
         if not video_queue:
             logger.info("No songs left in queue")
+            # Cleanup current file if any
+            if currently_playing and os.path.exists(currently_playing['path']):
+                try:
+                    os.remove(currently_playing['path'])
+                    logger.info(f"Cleaned up last audio file: {currently_playing['path']}")
+                except Exception as e:
+                    logger.warning(f"Error deleting last audio file: {e}")
+            currently_playing = None
             return
 
-        next_song = video_queue[0]
-        logger.info(f"Now playing: {next_song['title']} from {next_song['path']}")
-        audio = discord.FFmpegPCMAudio(executable=FFMPEG_PATH, source=next_song['path'])
-        voice_client.play(audio)
+        # Pop next song before playing
+        next_song = video_queue.pop(0)
+        currently_playing = next_song
+        currently_playing['displayTitle'] = f"Currently Playing: {next_song['title']}"
 
-        currently_playing = video_queue.pop(0)
-        currently_playing['displayTitle'] = f"Currently Playing: {currently_playing['title']}"
+        # Get members currently in VC (excluding bot)
         voice_client_channel = voice_client.channel
         vc_member_ids = [member.id for member in voice_client_channel.members if member.id != client.user.id]
         currently_playing['members'] = vc_member_ids
-        logger.info(f"Updated current song with VC members: {vc_member_ids}")
+        logger.info(f"Now playing: {next_song['title']} with VC members {vc_member_ids}")
+
+        def after_playing(error):
+            try:
+                if currently_playing and os.path.exists(currently_playing['path']):
+                    os.remove(currently_playing['path'])
+                    logger.info(f"Deleted file after playback: {currently_playing['path']}")
+            except Exception as e:
+                logger.warning(f"Failed to delete after playback: {e}")
+            # Try to play the next song
+            refresh_song(client, set_guild)
+
+        audio = discord.FFmpegOpusAudio(source=next_song['path'], executable=FFMPEG_PATH)
+        voice_client.play(audio, after=lambda e: after_playing(e))
+
     except Exception as e:
-        logger.error(f"Error refreshing song: {e}")
+        logger.error(f"Error in refresh_song: {e}", exc_info=True)
         return

@@ -143,6 +143,10 @@ class MusicBot(commands.Cog):
             queue_info = [currently_playing] + video_queue
         else:
             queue_info = video_queue
+        
+        if not queue_info:
+            await interaction.response.send_message("There are no songs in the queue.")
+            return
 
         def formatting(info):
             return f"{info['displayTitle']} - {info['duration']}\nLink: {info['link']}"
