@@ -1,4 +1,3 @@
-from pytubefix import YouTube
 import yt_dlp
 import re
 import os
@@ -44,9 +43,10 @@ def get_audio(url):
         ydl_opts = {
             'user_agent': 'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             'format': 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best',
-            'outtmpl': 'audios/%(title)s.%(ext)s',
+            'outtmpl': 'audios/%(title)s.opus',
             'quiet': True,
             'no_warnings': True,
+            'cookiefile': 'auth/cookies.txt',
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -108,19 +108,21 @@ def refresh_song(client, set_guild):
 
         if not video_queue:
             logger.info("No songs left in queue")
-            # Cleanup current file if any
-            if currently_playing and os.path.exists(currently_playing['path']):
-                try:
-                    os.remove(currently_playing['path'])
-                    logger.info(f"Cleaned up last audio file: {currently_playing['path']}")
-                except Exception as e:
-                    logger.warning(f"Error deleting last audio file: {e}")
-            currently_playing = None
+            currently_playing.clear()
             return
+        
+        # Clean up the previous song file if it exists (before starting new song)
+        if currently_playing and os.path.exists(currently_playing['path']):
+            try:
+                os.remove(currently_playing['path'])
+                logger.info(f"Cleaned up previous audio file: {currently_playing['path']}")
+            except Exception as e:
+                logger.warning(f"Error deleting previous audio file: {e}")
 
         # Pop next song before playing
         next_song = video_queue.pop(0)
-        currently_playing = next_song
+        currently_playing.clear()
+        currently_playing.update(next_song)
         currently_playing['displayTitle'] = f"Currently Playing: {next_song['title']}"
 
         # Get members currently in VC (excluding bot)
@@ -130,6 +132,7 @@ def refresh_song(client, set_guild):
         logger.info(f"Now playing: {next_song['title']} with VC members {vc_member_ids}")
 
         def after_playing(error):
+            global currently_playing
             try:
                 if currently_playing and os.path.exists(currently_playing['path']):
                     os.remove(currently_playing['path'])
@@ -138,8 +141,13 @@ def refresh_song(client, set_guild):
                 logger.warning(f"Failed to delete after playback: {e}")
             # Try to play the next song
             refresh_song(client, set_guild)
+        
+        # Set perceived loudness, true peak limit & loudness range
+        ffmpeg_options = {
+            'options': '-vn -af loudnorm=I=-22:TP=-1.5:LRA=11'
+        }
 
-        audio = discord.FFmpegOpusAudio(source=next_song['path'], executable=FFMPEG_PATH)
+        audio = discord.FFmpegOpusAudio(source=next_song['path'], executable=FFMPEG_PATH, **ffmpeg_options)
         voice_client.play(audio, after=lambda e: after_playing(e))
 
     except Exception as e:

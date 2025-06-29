@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands, Object
 from utils.audio_essentials import *
+from utils.variables import currently_playing
 from youtubesearchpython import VideosSearch
 from utils.permissions import has_allowed_role_and_channel
 import logging
@@ -23,10 +24,9 @@ class VoteSkip(discord.ui.View):
         self.voted_skip = []
         self.voted_continue = []
         self.instances.append({'instance': self, 'id': currently_playing['id']})
-        self.majority = (len(self.voted_skip) > len(self.currently_playing['members'])/2)
 
 
-    @discord.ui.button(label="⏩ Skip", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="⏩ Skip", style=discord.ButtonStyle.red)
     async def skip(self, interaction: discord.Interaction, button: discord.Button):
 
         user_id = interaction.user.id
@@ -47,12 +47,17 @@ class VoteSkip(discord.ui.View):
         await interaction.response.send_message("Successfully voted to skip", ephemeral=True)
         await message.edit(embed=embed)
 
-        if len(self.voted_skip) > len(self.currently_playing['members'])/2:
-            await interaction.channel.send(f"{self.currently_playing['title']} will be skipped")
-            logger.info(f"Majority reached, skipping song: {self.currently_playing['title']}")
+        member_count = len(self.currently_playing['members'])
+        if len(self.voted_skip) > member_count / 2:
+            await interaction.channel.send(f"Skipping Song: {self.currently_playing['title']}")
+            logger.info(f"Majority reached ({len(self.voted_skip)}/{member_count}), skipping song: {self.currently_playing['title']}")
+            # Stop the song here to trigger the next one
+            voice_client = interaction.guild.voice_client
+            if voice_client and voice_client.is_playing():
+                voice_client.stop()
 
 
-    @discord.ui.button(label="▶️ Continue", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="▶️ Continue", style=discord.ButtonStyle.green)
     async def cancel(self, interaction: discord.Interaction, button: discord.Button):
         user_id = interaction.user.id
         if user_id in self.voted_continue:
@@ -108,7 +113,7 @@ class MusicBot(commands.Cog):
                 video = video_search.result()['result'][0]
                 video_id = video["id"]
                 if not check_video_length(video_id):
-                    await interaction.response.send_message("Only songs under 1 hour can be played")
+                    await interaction.followup.send("Only songs under 1 hour can be played")
                     return
                 path = get_audio(video['link'])
                 videoInfo = {'title': video['title'], 'link': video['link'], 'id': video_id, 'path': path,
@@ -158,7 +163,7 @@ class MusicBot(commands.Cog):
 
 
     @music_group.command(name="vote-skip", description="Vote to skip a song")
-    @has_allowed_role_and_channel(allowed_channels=['🎶┃music-radio-tools', 'test-commands'])
+    @has_allowed_role_and_channel(allowed_channels=['🎶┃music-radio-tools', '🚧┃test-commands'])
     async def vote_skip(self, interaction: discord.Interaction):
         if not currently_playing:
             await interaction.response.send_message("No song is currently playing.")
