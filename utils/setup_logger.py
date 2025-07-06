@@ -6,7 +6,23 @@ import discord
 def create_rotating_handler(filename, level=logging.INFO, max_bytes=1_000_000, backups=5):
     handler = RotatingFileHandler(filename, maxBytes=max_bytes, backupCount=backups, encoding="utf-8")
     handler.setLevel(level)
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+    class CategoryFormatter(logging.Formatter):
+        def format(self, record):
+            cat = getattr(record, "category", None)
+            if cat:
+                if isinstance(cat, list):
+                    cat = ",".join(cat)
+                # Avoid double brackets if already present
+                if not (cat.startswith("[") and cat.endswith("]")):
+                    cat = f"[{cat}]"
+            else:
+                cat = ""
+            record.category = cat
+            return super().format(record)
+
+    
+    formatter = CategoryFormatter("%(asctime)s - %(levelname)s - %(category)s %(message)s")
     handler.setFormatter(formatter)
     return handler
 
@@ -32,4 +48,7 @@ def log_slash_command(logger, interaction: discord.Interaction):
     command_name = interaction.command.name if interaction.command else "unknown"
     user = interaction.user
     channel = interaction.channel
-    logger.info(f"/{command_name} used by {user.display_name} (ID: {user.id}) in #{channel}")
+    logger.info(
+        f"/{command_name} used by {user.display_name} (ID: {user.id}) in #{channel}",
+        extra={"category": "command_usage"}
+    )

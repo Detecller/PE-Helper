@@ -7,6 +7,7 @@ import discord
 from utils.variables import currently_playing, audio
 import logging
 import platform
+import traceback
 
 
 load_dotenv()
@@ -52,13 +53,12 @@ def get_audio(url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             filepath = ydl.prepare_filename(info_dict)
-            base, ext = os.path.splitext(filepath)
             audio_file = filepath
             logger.info(f"Downloaded audio to: {audio_file}")
             return audio_file
 
     except Exception as e:
-        logger.error(f"Failed to download audio from {url}: {e}")
+        logger.error(f"Failed to download audio from {url}: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "get_audio"]})
         raise
 
 
@@ -72,7 +72,7 @@ def get_id(url):
         logger.debug(f"Extracted video ID: {check} from {url}")
         return check
     except Exception as e:
-        logger.error(f"Error extracting video ID from {url}: {e}")
+        logger.error(f"Error extracting video ID from {url}:: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "get_id"]})
         raise
 
 
@@ -85,10 +85,10 @@ def check_video_length(VidID):
         requests = youtube.videos().list(part="id, contentDetails", id=VidID)
         response = requests.execute()
         duration = response['items'][0]['contentDetails']['duration']
-        logger.info(f"Video duration for {VidID}: {duration}")
+        logger.info(f"Video duration for {VidID}: {duration}", extra={"category": ["music_bot", "check_video_length"]})
         return "H" not in duration
     except Exception as e:
-        logger.error(f"Error checking video length for {VidID}: {e}")
+        logger.error(f"Error checking video length for {VidID}:: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "check_video_length"]})
         return False
 
 
@@ -100,7 +100,7 @@ def refresh_song(client, set_guild):
         guild = client.get_guild(set_guild)
         voice_client = guild.voice_client
         if not voice_client:
-            logger.warning(f"No voice client found for guild {set_guild}")
+            logger.warning(f"No voice client found for guild {set_guild}", extra={"category": ["music_bot", "refresh_song"]})
             return
         if voice_client.is_playing():
             logger.debug("Voice client is already playing")
@@ -117,7 +117,7 @@ def refresh_song(client, set_guild):
                 os.remove(currently_playing['path'])
                 logger.info(f"Cleaned up previous audio file: {currently_playing['path']}")
             except Exception as e:
-                logger.warning(f"Error deleting previous audio file: {e}")
+                logger.warning(f"Error deleting previous audio file: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "refresh_song"]})
 
         # Pop next song before playing
         next_song = video_queue.pop(0)
@@ -138,7 +138,7 @@ def refresh_song(client, set_guild):
                     os.remove(currently_playing['path'])
                     logger.info(f"Deleted file after playback: {currently_playing['path']}")
             except Exception as e:
-                logger.warning(f"Failed to delete after playback: {e}")
+                logger.warning(f"Failed to delete after playback:: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "refresh_song"]})
             # Try to play the next song
             refresh_song(client, set_guild)
         
@@ -151,5 +151,5 @@ def refresh_song(client, set_guild):
         voice_client.play(audio, after=lambda e: after_playing(e))
 
     except Exception as e:
-        logger.error(f"Error in refresh_song: {e}", exc_info=True)
+        logger.error(f"Error in refresh_song:: %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "refresh_song"]})
         return

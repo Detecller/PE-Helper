@@ -6,6 +6,7 @@ from utils.variables import currently_playing
 from youtubesearchpython import VideosSearch
 from utils.permissions import has_allowed_role_and_channel
 import logging
+import traceback
 
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -72,7 +73,7 @@ class VoteSkip(discord.ui.View):
         embed.add_field(name="⏩ Skip", value=f"{len(self.voted_skip)} Voted", inline=True)
         embed.add_field(name="▶️ Continue", value=f"{len(self.voted_continue)} Voted", inline=True)
         message = await self.interaction.original_response()
-        await interaction.response.send_message("Successfully voted to continue", ephemeral=True)
+        await interaction.response.send_message("Successfully voted to continue.", ephemeral=True)
         await message.edit(embed=embed)
 
 
@@ -91,7 +92,7 @@ class MusicBot(commands.Cog):
         
         if not user_vc:
             logger.warning(f"{interaction.user} attempted to add queue without VC")
-            await interaction.response.send_message(f"You need to be in a VC to perform this command")
+            await interaction.response.send_message(f"You need to be in a VC to perform this command.", ephemeral=True)
             return
         if len(video_queue) >= 10:
             await interaction.response.send_message(f"Only 10 songs can be added to queue.")
@@ -113,7 +114,7 @@ class MusicBot(commands.Cog):
                 video = video_search.result()['result'][0]
                 video_id = video["id"]
                 if not check_video_length(video_id):
-                    await interaction.followup.send("Only songs under 1 hour can be played")
+                    await interaction.followup.send("Only songs under 1 hour can be played.")
                     return
                 path = get_audio(video['link'])
                 videoInfo = {'title': video['title'], 'link': video['link'], 'id': video_id, 'path': path,
@@ -137,8 +138,8 @@ class MusicBot(commands.Cog):
             refresh_song(self.bot, GUILD_ID)
             
         except Exception as e:
-            logger.error(f"Failed to add song to queue: {e}", exc_info=True)
-            await interaction.followup.send("An error occurred while adding the song.")
+            logger.error(f"Failed to add song to queue: : %s\n%s", e, traceback.format_exc(), extra={"category": ["music_bot", "add_queue"]})
+            await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
 
     @music_group.command(name="view-queue", description="View all songs in a queue")

@@ -7,6 +7,7 @@ from utils.web_searching import search_scores
 from utils.setup_logger import log_slash_command
 import os
 import logging
+import traceback
 
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -14,7 +15,7 @@ GUILD_ID = int(os.getenv("GUILD_ID"))
 composers = ["Chopin", "J.S Bach", "Beethoven", "Mozart", "Liszt", "Rachmaninoff", "Debussy", "R.Schumann", "C.Schumann",
              "Schubert", "Tchaikovsky", "Czerny", "Haydn", "Mendelssohn", "Moszkowski", "Ravel", "Erik Satie", "Scarlatti"]
 
-file_path = "data/composers.csv"
+file_path = "../data/composers.csv"
 logger = logging.getLogger("pe_helper")
 
 
@@ -74,7 +75,7 @@ class ScoreSearcher(commands.Cog):
             await interaction.followup.send(embed=embed)
             
         except Exception as e:
-            logger.error(f"Error in /search_piece command: {e}", exc_info=True)
+            logger.error(f"Error in /search_piece command: %s\n%s", e, traceback.format_exc(), extra={"category": ["score_searcher", "search_piece"]})
             await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
 
 

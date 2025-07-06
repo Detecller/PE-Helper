@@ -58,12 +58,12 @@ class EXCOExclusive(commands.Cog):
                 })
 
         if not rows:
-            logger.warning("No members and alumni found for Excel export.")
+            logger.warning("No members and alumni found for Excel export.", extra={"category": ["exco_exclusive", "members_details"]})
             await interaction.response.send_message("No members and alumni found.")
             return
 
         df = pd.DataFrame(rows)
-        fname = "data/members_details.xlsx"
+        fname = "../data/members_details.xlsx"
         df.to_excel(fname, index=False)
 
         # Load the workbook and convert the sheet to a table
@@ -85,11 +85,11 @@ class EXCOExclusive(commands.Cog):
             ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
 
         wb.save(fname)
-        logger.info("Excel table formatting complete.")
+        logger.info("Excel table formatting complete.", extra={"category": ["exco_exclusive", "members_details"]})
 
         await interaction.followup.send("Here is the Excel export:", file=discord.File(fname))
         os.remove(fname)
-        logger.info("Temporary Excel file removed.")
+        logger.info("Temporary Excel file removed.", extra={"category": ["exco_exclusive", "members_details"]})
 
 
     @exco_exclusive_group.command(name="weekly-session-nominal-rolls", description="Exports nominal rolls of all weekly sessions to Excel.")
@@ -100,8 +100,8 @@ class EXCOExclusive(commands.Cog):
 
         log_slash_command(logger, interaction)
 
-        df = pd.read_csv('data/all_bookings.csv')
-        fname = 'data/all_bookings.xlsx'
+        df = pd.read_csv('../data/all_bookings.csv')
+        fname = '../data/all_bookings.xlsx'
         df.to_excel(fname, index=False)
 
         # Load the workbook and convert the sheet to a table
@@ -123,11 +123,11 @@ class EXCOExclusive(commands.Cog):
             ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
 
         wb.save(fname)
-        logger.info("Excel table formatting complete.")
+        logger.info("Excel table formatting complete.", extra={"category": ["exco_exclusive", "weekly_session_nominal_rolls"]})
 
         await interaction.followup.send("Here is the Excel export:", file=discord.File(fname))
         os.remove(fname)
-        logger.info("Temporary Excel file removed.")
+        logger.info("Temporary Excel file removed.", extra={"category": ["exco_exclusive", "weekly_session_nominal_rolls"]})
 
 
 async def setup(bot: commands.Bot):

@@ -25,7 +25,7 @@ def google_search(search_term, api_key, cse_id, interaction, **kwargs):
 
     except HttpError as e:
         if e.resp.status == 403:
-            logger.warning(f"Google API quota exceeded: {e}")
+            logger.warning(f"Google API quota exceeded: {e}", extra={"category": ["score_searcher", "google_search"]})
             # Respond directly in the command
             asyncio.create_task(interaction.followup.send("❌ Limit reached. Please try again tomorrow.", ephemeral=True))
         else:

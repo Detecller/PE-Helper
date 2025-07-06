@@ -11,6 +11,7 @@ from utils.setup_logger import log_slash_command
 import io
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2.credentials import Credentials
+import traceback
 
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
@@ -83,10 +84,8 @@ class SheetDownloadButton(discord.ui.Button):
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.followup.send(
-                content=f"❌ Failed to download {self.label}: {e}",
-                ephemeral=True
-            )
+            logger.error(f"❌ Failed to download {self.label}: %s\n%s", e, traceback.format_exc(), extra={"category": ["sheet_retriever", "view_pe_sheets"]})
+            await interaction.followup.send(content=f"❌ Failed to download {self.label}", ephemeral=True)
 
 
 class SheetRetriever(commands.Cog):
@@ -114,7 +113,7 @@ class SheetRetriever(commands.Cog):
                 creds.refresh(Request())
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
+                creds = flow.run_local_server(port=8080)
             # Save the credentials for next run
             with open(TOKEN_JSON, 'w') as token:
                 token.write(creds.to_json())
