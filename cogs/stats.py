@@ -229,6 +229,7 @@ class Stats(commands.Cog):
         buf.seek(0)
 
         await interaction.followup.send(file=discord.File(buf, "weekly_session_trend.png"))
+        await interaction.followup.send("Note: Updates daily at 5 PM SGT.")
 
 
 async def setup(bot: commands.Bot):

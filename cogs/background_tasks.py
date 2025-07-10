@@ -125,6 +125,13 @@ class BackgroundTasks(commands.Cog):
             logger.error(f"Error saving message stats CSV files: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "count_messages"]})
     
 
+    @count_messages.before_loop
+    async def before_count_messages(self):
+        logger.info("Waiting for bot to be ready before starting count_messages task...")
+        await self.bot.wait_until_ready()
+        logger.info("Bot is ready, count_messages task starting now.")
+
+
     async def collect_links(self):
         guild = self.bot.get_guild(GUILD_ID)
         target_channel = discord.utils.get(guild.text_channels, name="🎹┃weekly-sessions")
