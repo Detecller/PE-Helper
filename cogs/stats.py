@@ -161,7 +161,7 @@ class Stats(commands.Cog):
             await interaction.followup.send(header)
             await interaction.followup.send(file=discord.File(buf1, "message_count.png"))
             await interaction.followup.send(file=discord.File(buf2, "word_count.png"))
-            await interaction.followup.send(f"Last updated: {last_update.strftime('%Y-%m-%d %H:%M:%S')} SGT")
+            await interaction.followup.send("Note: Updates daily at 5 PM SGT.")
             logger.info("Sent message stats charts and last updated info.", extra={"category": ["stats", "message_stats"]})
         except Exception as e:
             logger.error(f"Failed to send message stats charts: %s\n%s", e, traceback.format_exc(), extra={"category": ["stats", "message_stats"]})

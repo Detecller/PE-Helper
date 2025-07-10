@@ -38,10 +38,8 @@ class BackgroundTasks(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         logger.info("Starting background tasks.")
-        if not self.count_messages.is_running():
-            self.count_messages.start()
-        else:
-            logger.info("count_messages task already running.", extra={"category": "on_ready"})
+        logger.info("Running count_messages once on startup.", extra={"category": "on_ready"})
+        await self.count_messages()
         
         if self.collect_links_task is None:
             logger.info("Starting collect_links_time loop.", extra={"category": "on_ready"})
@@ -52,8 +50,11 @@ class BackgroundTasks(commands.Cog):
 
     async def collect_links_time(self):
         try:
-            logger.info("Running initial collect_and_scrape on startup.", extra={"category": ["background_tasks", "collect_and_scrape"]})
+            logger.info("Running initial collect_and_scrape and count_messages on startup.", extra={"category": ["background_tasks", "collect_and_scrape"]})
             await self.collect_and_scrape()
+            logger.info("Running initial collect_and_scrape and count_messages on startup.", extra={"category": ["background_tasks", "collect_and_scrape"]})
+            await self.count_messages()
+
         except Exception as e:
             logger.error(f"Error during initial collect_and_scrape: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
 
@@ -62,6 +63,7 @@ class BackgroundTasks(commands.Cog):
 
             # Set target to today at 5 PM
             target_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
+
 
             # If it's already past 5 PM, schedule for 5 PM tomorrow
             if now >= target_time:
@@ -72,11 +74,11 @@ class BackgroundTasks(commands.Cog):
             await asyncio.sleep(wait_seconds)
             try:
                 await self.collect_and_scrape()
+                await self.count_messages()
             except Exception as e:
                 logger.error(f"Error during scheduled collect_and_scrape: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
 
 
-    @tasks.loop(hours=1)
     async def count_messages(self):
         logger.info("Starting count_messages task.")
 
@@ -123,13 +125,6 @@ class BackgroundTasks(commands.Cog):
             logger.info("count_messages task completed and CSV files updated.", extra={"category": ["background_tasks", "count_messages"]})
         except Exception as e:
             logger.error(f"Error saving message stats CSV files: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "count_messages"]})
-    
-
-    @count_messages.before_loop
-    async def before_count_messages(self):
-        logger.info("Waiting for bot to be ready before starting count_messages task...")
-        await self.bot.wait_until_ready()
-        logger.info("Bot is ready, count_messages task starting now.")
 
 
     async def collect_links(self):
