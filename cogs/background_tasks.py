@@ -50,13 +50,22 @@ class BackgroundTasks(commands.Cog):
 
     async def collect_links_time(self):
         try:
-            logger.info("Running initial collect_and_scrape and count_messages on startup.", extra={"category": ["background_tasks", "collect_and_scrape"]})
+            logger.info("Starting initial collect_and_scrape on startup.")
             await self.collect_and_scrape()
-            logger.info("Running initial collect_and_scrape and count_messages on startup.", extra={"category": ["background_tasks", "collect_and_scrape"]})
-            await self.count_messages()
+        except Exception:
+            logger.error("Error during collect_and_scrape", exc_info=True, extra={"category": ["background_tasks", "collect_and_scrape"]})
 
-        except Exception as e:
-            logger.error(f"Error during initial collect_and_scrape: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
+        try:
+            logger.info("Starting initial count_messages on startup.")
+            await self.count_messages()
+        except Exception:
+            logger.error("Error during count_messages", exc_info=True, extra={"category": ["background_tasks", "count_messages"]})
+
+        try:
+            logger.info("Starting initial count_piano_groups on startup.")
+            await self.count_piano_groups()
+        except Exception:
+            logger.error("Error during count_piano_groups", exc_info=True, extra={"category": ["background_tasks", "count_piano_groups"]})
 
         while True:
             now = datetime.now(SGT).astimezone()
@@ -77,6 +86,32 @@ class BackgroundTasks(commands.Cog):
                 await self.count_messages()
             except Exception as e:
                 logger.error(f"Error during scheduled collect_and_scrape: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
+
+
+    async def count_piano_groups(self):
+        logger.info("Starting count_piano_groups task.")
+
+        guild = self.bot.get_guild(GUILD_ID)
+
+        count_dict = {"Advanced": 0, "Intermediate": 0, "Novice": 0, "Foundational": 0}
+
+        for m in guild.members:
+            if m.bot:
+                continue
+            roles = {r.name for r in m.roles}
+            if "Member" in roles:  # Obtain current members only
+                if "Advanced" in roles:
+                    count_dict["Advanced"] += 1
+                elif "Intermediate" in roles:
+                    count_dict["Intermediate"] += 1
+                elif "Novice" in roles:
+                    count_dict["Novice"] += 1
+                elif "Foundational" in roles:
+                    count_dict["Foundational"] += 1
+
+        logger.info(f"Counting of members in piano groups was successful.", extra={"category": ["background_tasks", "count_piano_groups"]})
+        df_piano_groups = pd.DataFrame([count_dict])
+        df_piano_groups.to_csv("../data/piano_groups.csv", index=False)
 
 
     async def count_messages(self):
@@ -320,6 +355,7 @@ class BackgroundTasks(commands.Cog):
 
         df_new = pd.DataFrame(bookings)
         df_existing = pd.concat([df_new, df_existing], ignore_index=True)
+        df_existing['admin_num'] = df_existing['admin_num'].str.extract(r'(\b\d{6}[A-Za-z]\b)')[0].str.upper()
         logger.info(f"Scraping complete for link: {link}", extra={"category": ["background_tasks", "scrape_link_sync"]})
         return df_existing, df_links
 
