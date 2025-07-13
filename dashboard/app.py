@@ -23,6 +23,7 @@ st.markdown(
 # Load data
 df_sessions = pd.read_csv('../data/all_bookings.csv')
 df_piano_groups = pd.read_csv('../data/piano_groups.csv')
+df_summary_numbers = pd.read_csv('../data/summary_numbers.csv')
 
 # Convert dates early for filtering
 df_sessions['date'] = pd.to_datetime(df_sessions['date'])
@@ -36,6 +37,14 @@ selected_ays = st.sidebar.multiselect(
     options=available_ays,
     default=[available_ays[0]]
 )
+
+if selected_ays:
+    filtered = df_summary_numbers[df_summary_numbers['AY'].isin(selected_ays)]
+    members = filtered['members_num'].sum()
+    alumni = filtered['alumni_num'].sum()
+    new_members = df_summary_numbers.loc[df_summary_numbers['AY'].idxmax()]['new_members_num']
+else:
+    members = alumni = new_members = 0
 
 # Sidebar filter — Date range
 min_date = df_sessions['date'].min().date()
@@ -51,6 +60,56 @@ start_date, end_date = st.sidebar.slider(
 
 start_date = datetime.combine(start_date, datetime.min.time())
 end_date = datetime.combine(end_date, datetime.max.time())
+
+
+card1, card2, card3 = st.columns(3)
+with card1:
+    st.markdown(f"""
+    <div style="
+        background-color: #fbfbfb;
+        border-radius: 16px;
+        padding: 1.2rem;
+        text-align: center;
+        margin-bottom: 1.5rem;
+    ">
+        <div style="font-size: 0.95rem; color: #666; font-weight: 600;">Total Members</div>
+        <div style="font-size: 2rem; font-weight: bold; margin-top: 0.2rem; color: #0072B1;">
+            {members:,}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with card2:
+    st.markdown(f"""
+    <div style="
+        background-color: #fbfbfb;
+        border-radius: 16px;
+        padding: 1.2rem;
+        text-align: center;
+        margin-bottom: 1.5rem;
+    ">
+        <div style="font-size: 0.95rem; color: #666; font-weight: 600;">Total Alumni</div>
+        <div style="font-size: 2rem; font-weight: bold; margin-top: 0.2rem; color: #0072B1;">
+            {alumni:,}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with card3:
+    st.markdown(f"""
+    <div style="
+        background-color: #fbfbfb;
+        border-radius: 16px;
+        padding: 1.2rem;
+        text-align: center;
+        margin-bottom: 1.5rem;
+    ">
+        <div style="font-size: 0.95rem; color: #666; font-weight: 600;">Newcomers (this AY)</div>
+        <div style="font-size: 2rem; font-weight: bold; margin-top: 0.2rem; color: #0072B1;">
+            {new_members:,}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 col1, col2 = st.columns([1, 1])

@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands, tasks
-from utils.variables import SGT, PT, last_update
+from utils.variables import SGT, last_update
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from datetime import timedelta
 import re
 import os
@@ -67,6 +67,12 @@ class BackgroundTasks(commands.Cog):
         except Exception:
             logger.error("Error during count_piano_groups", exc_info=True, extra={"category": ["background_tasks", "count_piano_groups"]})
 
+        try:
+            logger.info("Starting initial get_summary_numbers on startup.")
+            await self.get_summary_numbers()
+        except Exception:
+            logger.error("Error during get_summary_numbers", exc_info=True, extra={"category": ["background_tasks", "get_summary_numbers"]})
+
         while True:
             now = datetime.now(SGT).astimezone()
 
@@ -112,6 +118,49 @@ class BackgroundTasks(commands.Cog):
         logger.info(f"Counting of members in piano groups was successful.", extra={"category": ["background_tasks", "count_piano_groups"]})
         df_piano_groups = pd.DataFrame([count_dict])
         df_piano_groups.to_csv("../data/piano_groups.csv", index=False)
+    
+
+    async def get_summary_numbers(self):
+        logger.info("Starting get_summary_numbers task.")
+        
+        guild = self.bot.get_guild(GUILD_ID)
+        summary_dict = {}
+        for m in guild.members:
+            if m.bot:
+                continue
+
+            roles = {r.name for r in m.roles}
+            join_date = m.joined_at
+
+            # Determine AY: April 1st to March 31st
+            if join_date.month >= 4:
+                ay_year = join_date.year
+            else:
+                ay_year = join_date.year - 1
+            ay_key = f"{ay_year}"
+
+            if ay_key not in summary_dict:
+                summary_dict[ay_key] = {"members_num": 0, "alumni_num": 0, "new_members_num": 0}
+
+            # Role counts
+            if "Member" in roles:
+                summary_dict[ay_key]["members_num"] += 1
+            elif "Alumni" in roles:
+                summary_dict[ay_key]["alumni_num"] += 1
+
+            # New member check: if joined during AY
+            ay_start = datetime(ay_year, 4, 1, tzinfo=timezone.utc)
+            ay_end = datetime(ay_year + 1, 4, 1, tzinfo=timezone.utc)
+            if ay_start <= join_date < ay_end:
+                summary_dict[ay_key]["new_members_num"] += 1
+
+        summary_numbers = [
+            {"AY": ay, **counts} for ay, counts in summary_dict.items()
+        ]
+
+        df = pd.DataFrame(summary_numbers)
+        df = df.sort_values("AY")
+        df.to_csv("../data/summary_numbers.csv", index=False)
 
 
     async def count_messages(self):
