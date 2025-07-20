@@ -83,7 +83,7 @@ async def on_ready():
             # Add Discord error handler
             error_channel = discord.utils.get(guild.text_channels, name="❗┃error-logs")
             if error_channel:
-                discord_handler = DiscordHandler(error_channel)
+                discord_handler = DiscordHandler(error_channel, loop=bot.loop)
                 discord_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
                 logger.addHandler(discord_handler)
                 logger.info("DiscordHandler attached.", extra={"category": "on_ready"})

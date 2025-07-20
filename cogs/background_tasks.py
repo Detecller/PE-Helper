@@ -294,6 +294,7 @@ class BackgroundTasks(commands.Cog):
 
             if today > date and df_links.loc[df_links["url"] == link, "scanned"].values[0] == 1:
                 logger.info(f"Session date passed and already scanned for link: {link}")
+                df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
                 return df_existing, df_links
 
             room = driver.find_element(By.XPATH, f'//*[@id="signupcontainer"]/div[1]/div[2]/div[2]/div[4]/div/div[2]/span').text
@@ -385,10 +386,7 @@ class BackgroundTasks(commands.Cog):
                         break
 
                     df_links.loc[df_links["url"] == link, "scanned"] = 1  # Flag that link has been scrapped successfully
-                    if today > date:
-                        df_links.loc[df_links["url"] == link, "state"] = 2  # Indicate weekly session has passed
-                    else:
-                        df_links.loc[df_links["url"] == link, "state"] = 1  # Indicate weekly session has not passed
+                    df_links.loc[df_links["url"] == link, "state"] = 1  # Indicate weekly session has not passed
                     bookings.append({
                         "date": date,
                         "room": room,
@@ -416,8 +414,8 @@ class BackgroundTasks(commands.Cog):
         links_path = "../data/links.csv"
         df_links = pd.read_csv(links_path)
 
-        # Filter out unscrapable and passed sessions
-        links_to_scan = df_links[df_links["state"].isin([-1, 1])]["url"].tolist()
+        # Filter out unscrapable links
+        links_to_scan = df_links[df_links["state"] != 0]["url"].tolist()
 
         if not links_to_scan:
             logger.info("No unscanned links to scrape.", extra={"category": ["background_tasks", "collect_and_scrape"]})
@@ -442,7 +440,9 @@ class BackgroundTasks(commands.Cog):
             logger.error(f"Failed to start Chrome WebDriver: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
             return df_existing, df_links
         
-        driver.quit()
+        finally:
+            if driver:
+                driver.quit()
             
 
         # Get academic year for each date

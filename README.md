@@ -70,3 +70,9 @@ PE Helper is a Discord bot designed for NYP Piano Ensemble's server to provide m
 
 */weekly-session-popularity*
 - Creates a line chart showing the trends in room registrations for the current academic year.
+
+&nbsp;
+## 🧮 PE Dashboard
+Built using Streamlit, this dashboard enables one to visualise PE's weekly session trends, group distributions, and membership statistics. Information shown is based on data collected by PE Helper.
+
+🔗 Live Link: https://detecller.com/pe-dashboard/
