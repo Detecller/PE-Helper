@@ -18,12 +18,15 @@ import logging
 import functools
 import time
 import utils.audio_essentials as audio_essentials
+from utils.channel_last_message_id_tracker import *
 import cogs.music_bot as music_bot
 from utils.variables import currently_playing, audio
 import traceback
 
 
 GUILD_ID = int(os.getenv("GUILD_ID"))
+NEW_MESSAGES_PARQUET = "../data/new_messages.parquet"
+ALL_MESSAGES_PARQUET = "../data/all_messages.parquet"
 
 # Get logger
 logger = logging.getLogger("pe_helper")
@@ -62,6 +65,12 @@ class BackgroundTasks(commands.Cog):
             logger.error("Error during count_messages", exc_info=True, extra={"category": ["background_tasks", "count_messages"]})
 
         try:
+            logger.info("Starting initial collect_new_messages on startup.")
+            await self.collect_new_messages()
+        except Exception:
+            logger.error("Error during collect_new_messages", exc_info=True, extra={"category": ["background_tasks", "collect_new_messages"]})
+
+        try:
             logger.info("Starting initial count_piano_groups on startup.")
             await self.count_piano_groups()
         except Exception:
@@ -90,6 +99,7 @@ class BackgroundTasks(commands.Cog):
             try:
                 await self.collect_and_scrape()
                 await self.count_messages()
+                await self.collect_new_messages()
             except Exception as e:
                 logger.error(f"Error during scheduled collect_and_scrape: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_and_scrape"]})
 
@@ -209,6 +219,94 @@ class BackgroundTasks(commands.Cog):
             logger.info("count_messages task completed and CSV files updated.", extra={"category": ["background_tasks", "count_messages"]})
         except Exception as e:
             logger.error(f"Error saving message stats CSV files: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "count_messages"]})
+
+
+    async def collect_new_messages(self):
+        logger.info("Starting collect_new_messages task.")
+
+        guild = self.bot.get_guild(GUILD_ID)
+
+        try:
+            data = []
+            last_seen_ids = load_last_seen_ids()
+
+            for channel in guild.text_channels:
+                blacklisted_category = 'Commands'
+                if channel.category and channel.category.name == blacklisted_category:
+                    logger.info(f"Skipping channel '{channel.name}' in excluded category '{blacklisted_category}'", extra={"category": ["background_tasks", "collect_new_messages"]})
+                    continue
+
+                logger.info(f"Processing channel: {channel.name} (ID: {channel.id})", extra={"category": ["background_tasks", "collect_new_messages"]})
+                last_seen_id = last_seen_ids.get(str(channel.id))
+                
+                if last_seen_id is None:
+                    logger.info("No last seen ID found, fetching full history...", extra={"category": ["background_tasks", "collect_new_messages"]})
+                    history = channel.history(limit=None)
+                else:
+                    logger.info(f"Fetching messages after ID: {last_seen_id}", extra={"category": ["background_tasks", "collect_new_messages"]})
+                    history = channel.history(limit=None, after=discord.Object(id=last_seen_id))
+                    
+                latest_id = last_seen_id or 0
+                channel_name = channel.name
+                message_count = 0
+
+                async for message in history:
+                    message_count += 1
+                    name = message.author.display_name
+                    created_at = message.created_at
+                    content = message.content
+
+                    for user in message.mentions:
+                        content = content.replace(f"<@{user.id}>", f"@{user.display_name}")
+                        content = content.replace(f"<@!{user.id}>", f"@{user.display_name}")
+
+                    for role in message.role_mentions:
+                        content = content.replace(f"<@&{role.id}>", f"@{role.name}")
+
+                    for mentioned_channel in message.channel_mentions:
+                        content = content.replace(f"<#{mentioned_channel.id}>", f"#{mentioned_channel.name}")
+
+                    if message.mention_everyone:
+                        content = content.replace("@everyone", "@everyone")
+                        content = content.replace("@here", "@here")
+
+                    data.append({
+                        "message_id": message.id,
+                        "author": name,
+                        "channel": channel_name,
+                        "timestamp": created_at,
+                        "content": content
+                    })
+
+                    if message.id > latest_id:
+                        latest_id = message.id
+                
+                logger.info(f"Collected {message_count} messages from channel '{channel_name}'", extra={"category": ["background_tasks", "collect_new_messages"]})
+                last_seen_ids[str(channel.id)] = latest_id
+
+            save_last_seen_ids(last_seen_ids)
+            logger.info("Saved last seen message IDs.")
+
+            if data:
+                df = pd.DataFrame(data)
+                df.to_parquet(NEW_MESSAGES_PARQUET, index=False)
+                logger.info(f"Saved {len(data)} new messages to {NEW_MESSAGES_PARQUET}", extra={"category": ["background_tasks", "collect_new_messages"]})
+
+            if os.path.exists(ALL_MESSAGES_PARQUET):
+                old_df = pd.read_parquet(ALL_MESSAGES_PARQUET)
+                new_df = pd.read_parquet(NEW_MESSAGES_PARQUET)
+                combined = pd.concat([old_df, new_df]).drop_duplicates(subset="message_id")
+            else:
+                combined = pd.read_parquet(NEW_MESSAGES_PARQUET)
+
+            combined.to_parquet(ALL_MESSAGES_PARQUET, index=False)
+            logger.info("Updated combined messages saved to all_messages.parquet", extra={"category": ["background_tasks", "collect_new_messages"]})
+            
+            os.remove(NEW_MESSAGES_PARQUET)
+            logger.info("Temporary file new_messages.parquet removed.", extra={"category": ["background_tasks", "collect_new_messages"]})
+        
+        except Exception as e:
+            logger.error(f"Error in collect_new_messages: %s\n%s", e, traceback.format_exc(), extra={"category": ["background_tasks", "collect_new_messages"]})
 
 
     async def collect_links(self):
